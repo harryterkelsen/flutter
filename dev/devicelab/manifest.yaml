@@ -854,11 +854,11 @@ tasks:
     stage: devicelab
     required_agent_capabilities: ["linux-vm"]
 
-  web_benchmarks_canvaskit:
-    description: >
-      Runs Web benchmarks on Chrome on a Linux machine using the CanvasKit rendering backend.
-    stage: devicelab
-    required_agent_capabilities: ["linux-vm"]
+    # web_benchmarks_canvaskit:
+    #   description: >
+    #     Runs Web benchmarks on Chrome on a Linux machine using the CanvasKit rendering backend.
+    #   stage: devicelab
+    #   required_agent_capabilities: ["linux-vm"]
 
   web_enable_twc:
      description: >
