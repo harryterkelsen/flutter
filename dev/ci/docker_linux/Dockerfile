@@ -12,7 +12,7 @@
 
 # Last manual update 2021-09-24 (changing this comment will re-build image)
 
-FROM ubuntu:bionic@sha256:eb1392bbdde63147bc2b4ff1a4053dcfe6d15e4dfd3cce29e9b9f52a4f88bc74
+FROM ubuntu:bionic@sha256:14f1045816502e16fcbfc0b2a76747e9f5e40bc3899f8cfe20745abaafeaeab3
 MAINTAINER Flutter Developers <flutter-dev@googlegroups.com>
 
 RUN apt-get update -y && \
