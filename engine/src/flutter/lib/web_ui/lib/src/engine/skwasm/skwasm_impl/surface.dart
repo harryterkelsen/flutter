@@ -151,8 +151,8 @@ class SkwasmSurface implements OffscreenSurface {
     final SkDataHandle dataHandle = SkDataHandle.fromAddress(context);
     final int byteCount = skDataGetSize(dataHandle);
     final Pointer<Uint8> dataPointer = skDataGetConstPointer(dataHandle).cast<Uint8>();
-    final Uint8List output = Uint8List(byteCount);
-    for (int i = 0; i < byteCount; i++) {
+    final output = Uint8List(byteCount);
+    for (var i = 0; i < byteCount; i++) {
       output[i] = dataPointer[i];
     }
     skDataDispose(dataHandle);
