@@ -162,4 +162,7 @@ class CkPicture implements LayerPicture, StackTraceDebugger {
 
   @override
   StackTrace get debugStackTrace => _debugStackTrace;
+
+  @override
+  bool get isDisposed => _isDisposed;
 }

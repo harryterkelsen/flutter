@@ -54,6 +54,9 @@ class SkwasmPicture extends SkwasmObjectWrapper<RawPicture> implements LayerPict
   String toString() {
     return 'SkwasmPicture(${handle.address})';
   }
+
+  @override
+  bool get isDisposed => debugDisposed;
 }
 
 class SkwasmPictureRecorder extends SkwasmObjectWrapper<RawPictureRecorder>

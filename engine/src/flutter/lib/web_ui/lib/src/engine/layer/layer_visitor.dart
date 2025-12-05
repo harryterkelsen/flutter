@@ -408,7 +408,7 @@ class MeasureVisitor extends LayerVisitor<void> {
   @override
   void visitPicture(PictureLayer picture) {
     assert(picture.needsPainting);
-    if (picture.picture.debugDisposed) {
+    if (picture.picture.isDisposed) {
       // The picture layer was disposed before the picture could be painted.
       // Just ignore it then.
       picture.isCulled = true;
@@ -678,7 +678,7 @@ class PaintVisitor extends LayerVisitor<void> {
   void visitPicture(PictureLayer picture) {
     assert(picture.needsPainting);
 
-    if (picture.picture.debugDisposed) {
+    if (picture.picture.isDisposed) {
       // The picture layer was disposed before the picture could be painted.
       // Just ignore it then.
       picture.isCulled = true;
