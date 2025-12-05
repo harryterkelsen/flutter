@@ -49,6 +49,11 @@ class SkwasmPicture extends SkwasmObjectWrapper<RawPicture> implements LayerPict
     pictureRef(handle);
     return SkwasmPicture.fromHandle(handle, isClone: true);
   }
+
+  @override
+  String toString() {
+    return 'SkwasmPicture(${handle.address})';
+  }
 }
 
 class SkwasmPictureRecorder extends SkwasmObjectWrapper<RawPictureRecorder>

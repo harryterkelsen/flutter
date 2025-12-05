@@ -123,7 +123,7 @@ abstract class CkSurface extends Surface {
       _fallbackToSoftwareReason = 'debugForceGLFailure is true';
       return;
     }
-    final SkWebGLContextOptions options = SkWebGLContextOptions(
+    final options = SkWebGLContextOptions(
       antialias: _kUsingMSAA ? 1 : 0,
       majorVersion: webGLVersion.toDouble(),
     );
@@ -228,9 +228,9 @@ abstract class CkSurface extends Surface {
   @override
   Future<ByteData?> rasterizeImage(ui.Image image, ui.ImageByteFormat format) async {
     await _initialized.future;
-    final CkImage ckImage = image as CkImage;
+    final ckImage = image as CkImage;
     final SkSurface skSurface = _skSurface!;
-    final CkCanvas canvas = CkCanvas.fromSkCanvas(skSurface.getCanvas());
+    final canvas = CkCanvas.fromSkCanvas(skSurface.getCanvas());
     canvas.drawImage(ckImage, ui.Offset.zero, ui.Paint());
     final SkImage snapshot = skSurface.makeImageSnapshot();
     final Uint8List? bytes = snapshot.encodeToBytes();
@@ -244,8 +244,8 @@ abstract class CkSurface extends Surface {
   @override
   Future<void> rasterizeToCanvas(ui.Picture picture) async {
     await _initialized.future;
-    final CkCanvas canvas = CkCanvas.fromSkCanvas(_skSurface!.getCanvas());
-    final CkPicture ckPicture = picture as CkPicture;
+    final canvas = CkCanvas.fromSkCanvas(_skSurface!.getCanvas());
+    final ckPicture = picture as CkPicture;
     canvas.clear(const ui.Color(0x00000000));
     canvas.drawPicture(ckPicture);
     _skSurface!.flush();
@@ -275,8 +275,8 @@ class CkOffscreenSurface extends CkSurface implements OffscreenSurface {
   @override
   Future<List<DomImageBitmap>> rasterizeToImageBitmaps(List<ui.Picture> pictures) async {
     await _initialized.future;
-    final List<DomImageBitmap> bitmaps = <DomImageBitmap>[];
-    for (final ui.Picture picture in pictures) {
+    final bitmaps = <DomImageBitmap>[];
+    for (final picture in pictures) {
       await rasterizeToCanvas(picture);
       bitmaps.add(await createImageBitmap(_canvas));
     }

@@ -84,8 +84,8 @@ class MultiSurfaceViewRasterizer extends ViewRasterizer {
       throw ArgumentError('Called rasterize() with a different number of canvases and pictures.');
     }
     recorder?.recordRasterStart();
-    final List<Future<void>> rasterizeFutures = <Future<void>>[];
-    for (int i = 0; i < displayCanvases.length; i++) {
+    final rasterizeFutures = <Future<void>>[];
+    for (var i = 0; i < displayCanvases.length; i++) {
       rasterizeFutures.add(rasterizeToCanvas(displayCanvases[i] as OnscreenSurface, pictures[i]));
     }
     await Future.wait<void>(rasterizeFutures);

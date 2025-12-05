@@ -82,11 +82,11 @@ class OffscreenCanvasViewRasterizer extends ViewRasterizer {
     if (browserSupportsCreateImageBitmap) {
       final List<DomImageBitmap> bitmaps = await rasterizer.offscreenSurface
           .rasterizeToImageBitmaps(pictures);
-      for (int i = 0; i < displayCanvases.length; i++) {
+      for (var i = 0; i < displayCanvases.length; i++) {
         (displayCanvases[i] as RenderCanvas).render(bitmaps[i]);
       }
     } else {
-      for (int i = 0; i < displayCanvases.length; i++) {
+      for (var i = 0; i < displayCanvases.length; i++) {
         await rasterizer.offscreenSurface.rasterizeToCanvas(pictures[i]);
         (displayCanvases[i] as RenderCanvas).renderWithNoBitmapSupport(
           rasterizer.offscreenSurface.canvasImageSource,

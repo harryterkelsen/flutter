@@ -21,14 +21,13 @@ void testMain() {
     });
 
     test('CkOnscreenSurface resizes correctly', () async {
-      final OnscreenSurfaceProvider surfaceProvider = OnscreenSurfaceProvider(
+      final surfaceProvider = OnscreenSurfaceProvider(
         OnscreenCanvasProvider(),
         (OnscreenCanvasProvider canvasProvider) => CkOnscreenSurface(canvasProvider),
       );
-      final CkOnscreenSurface surface = surfaceProvider.createSurface() as CkOnscreenSurface;
+      final surface = surfaceProvider.createSurface() as CkOnscreenSurface;
       await surface.initialized;
-      final DomHTMLCanvasElement canvas =
-          surface.hostElement.children.single as DomHTMLCanvasElement;
+      final canvas = surface.hostElement.children.single as DomHTMLCanvasElement;
       ui.Size canvasSize = getCssSize(canvas);
 
       // Expect size 1x1 initially.
@@ -109,7 +108,7 @@ void testMain() {
 
     test('CkOnscreenSurface falls back to software rendering', () async {
       CkSurface.debugForceGLFailure = true;
-      final CkOnscreenSurface surface = CkOnscreenSurface(OnscreenCanvasProvider());
+      final surface = CkOnscreenSurface(OnscreenCanvasProvider());
       await surface.initialized;
 
       expect(surface.supportsWebGl, isFalse);
@@ -119,7 +118,7 @@ void testMain() {
 
     test('CkOffscreenSurface falls back to software rendering', () async {
       CkSurface.debugForceGLFailure = true;
-      final CkOffscreenSurface surface = CkOffscreenSurface(OffscreenCanvasProvider());
+      final surface = CkOffscreenSurface(OffscreenCanvasProvider());
       await surface.initialized;
 
       expect(surface.supportsWebGl, isFalse);
@@ -128,11 +127,11 @@ void testMain() {
     });
 
     test('does not recreate surface if size is the same', () async {
-      final OnscreenSurfaceProvider surfaceProvider = OnscreenSurfaceProvider(
+      final surfaceProvider = OnscreenSurfaceProvider(
         OnscreenCanvasProvider(),
         (OnscreenCanvasProvider canvasProvider) => CkOnscreenSurface(canvasProvider),
       );
-      final CkOnscreenSurface surface = surfaceProvider.createSurface() as CkOnscreenSurface;
+      final surface = surfaceProvider.createSurface() as CkOnscreenSurface;
       await surface.initialized;
       await surface.setSize(const BitmapSize(10, 20));
       final SkSurface? skSurface1 = surface.skSurface;

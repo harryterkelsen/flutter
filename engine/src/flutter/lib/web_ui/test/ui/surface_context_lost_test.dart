@@ -24,8 +24,7 @@ void testMain() {
       'creates new context when WebGL context is lost',
       () async {
         final Rasterizer rasterizer = renderer.rasterizer;
-        final OffscreenSurfaceProvider surfaceProvider =
-            rasterizer.surfaceProvider as OffscreenSurfaceProvider;
+        final surfaceProvider = rasterizer.surfaceProvider as OffscreenSurfaceProvider;
         final OffscreenSurface surface = surfaceProvider.createSurface();
         await surface.initialized;
 
@@ -45,8 +44,7 @@ void testMain() {
       'can still render after context is lost',
       () async {
         final Rasterizer rasterizer = renderer.rasterizer;
-        final OffscreenSurfaceProvider surfaceProvider =
-            rasterizer.surfaceProvider as OffscreenSurfaceProvider;
+        final surfaceProvider = rasterizer.surfaceProvider as OffscreenSurfaceProvider;
         final OffscreenSurface surface = surfaceProvider.createSurface();
         await surface.initialized;
 
@@ -88,8 +86,7 @@ void testMain() {
       'can recover from multiple context losses',
       () async {
         final Rasterizer rasterizer = renderer.rasterizer;
-        final OffscreenSurfaceProvider surfaceProvider =
-            rasterizer.surfaceProvider as OffscreenSurfaceProvider;
+        final surfaceProvider = rasterizer.surfaceProvider as OffscreenSurfaceProvider;
         final OffscreenSurface surface = surfaceProvider.createSurface();
         await surface.initialized;
 
@@ -115,8 +112,8 @@ void testMain() {
 }
 
 ui.Picture drawPicture(void Function(ui.Canvas) drawCommands) {
-  final ui.PictureRecorder recorder = ui.PictureRecorder();
-  final ui.Canvas canvas = ui.Canvas(recorder);
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
   drawCommands(canvas);
   return recorder.endRecording();
 }

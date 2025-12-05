@@ -59,8 +59,8 @@ class SkwasmImage extends SkwasmObjectWrapper<RawImage> implements ui.Image {
       final recorder = ui.PictureRecorder();
       final canvas = ui.Canvas(recorder);
       canvas.drawImage(this, ui.Offset.zero, ui.Paint());
-      final SkwasmPicture picture = recorder.endRecording() as SkwasmPicture;
-      final SkwasmSurface surface = renderer.pictureToImageSurface as SkwasmSurface;
+      final picture = recorder.endRecording() as SkwasmPicture;
+      final surface = renderer.pictureToImageSurface as SkwasmSurface;
       await surface.setSize(BitmapSize(width, height));
       final DomImageBitmap bitmap = (await surface.rasterizeToImageBitmaps(<SkwasmPicture>[
         picture,

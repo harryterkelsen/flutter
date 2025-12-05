@@ -105,8 +105,8 @@ class OnscreenCanvasProvider extends CanvasProvider<DomHTMLCanvasElement> {
     // When using an onscreen canvas, we also need to update the CSS size to
     // account for the device pixel ratio.
     final double ratio = EngineFlutterDisplay.instance.devicePixelRatio;
-    final String cssWidth = '${size.width / ratio}px';
-    final String cssHeight = '${size.height / ratio}px';
+    final cssWidth = '${size.width / ratio}px';
+    final cssHeight = '${size.height / ratio}px';
     canvas.style
       ..width = cssWidth
       ..height = cssHeight;

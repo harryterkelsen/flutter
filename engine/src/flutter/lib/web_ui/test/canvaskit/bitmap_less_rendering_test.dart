@@ -28,8 +28,8 @@ void testMain() {
     test(
       'throws when createImageBitmap is not supported but rasterizeToImageBitmaps is called',
       () async {
-        final CkOffscreenSurface surface = CkOffscreenSurface(OffscreenCanvasProvider());
-        final List<ui.Picture> pictures = <ui.Picture>[];
+        final surface = CkOffscreenSurface(OffscreenCanvasProvider());
+        final pictures = <ui.Picture>[];
         pictures.add(_createPicture());
 
         expect(() => surface.rasterizeToImageBitmaps(pictures), throwsUnsupportedError);
@@ -37,12 +37,12 @@ void testMain() {
     );
 
     test('does not throw when rasterizing with a Rasterizer', () async {
-      final ui.SceneBuilder builder = ui.SceneBuilder();
+      final builder = ui.SceneBuilder();
       builder.addPicture(ui.Offset.zero, _createPicture());
       final ui.Scene scene = builder.build();
       final LayerTree layerTree = (scene as LayerScene).layerTree;
 
-      final OffscreenCanvasRasterizer rasterizer = OffscreenCanvasRasterizer(
+      final rasterizer = OffscreenCanvasRasterizer(
         (OffscreenCanvasProvider canvasProvider) => CkOffscreenSurface(canvasProvider),
       );
 
@@ -55,8 +55,8 @@ void testMain() {
 }
 
 ui.Picture _createPicture() {
-  final ui.PictureRecorder recorder = ui.PictureRecorder();
-  final ui.Canvas canvas = ui.Canvas(recorder);
+  final recorder = ui.PictureRecorder();
+  final canvas = ui.Canvas(recorder);
   canvas.drawRect(const ui.Rect.fromLTRB(0, 0, 10, 10), ui.Paint());
   return recorder.endRecording();
 }

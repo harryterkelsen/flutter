@@ -50,7 +50,7 @@ class SkwasmCallbackHandler {
 
   // Returns a future that will resolve when Skwasm calls back with the given callbackID
   Future<JSAny> registerCallback(int callbackId) {
-    final Completer<JSAny> completer = Completer<JSAny>();
+    final completer = Completer<JSAny>();
     _pendingCallbacks[callbackId] = (completer, Zone.current);
     return completer.future;
   }
@@ -84,7 +84,7 @@ class SkwasmSurface implements OffscreenSurface {
     final SurfaceHandle handle = withStackScope<SurfaceHandle>((StackScope scope) {
       return surfaceCreate();
     });
-    final SkwasmSurface surface = SkwasmSurface._fromHandle(handle, canvasProvider);
+    final surface = SkwasmSurface._fromHandle(handle, canvasProvider);
     return surface;
   }
 
@@ -176,11 +176,11 @@ class SkwasmSurface implements OffscreenSurface {
         final Pointer<PictureHandle> pictureHandles = scope
             .allocPointerArray(pictures.length)
             .cast<PictureHandle>();
-        for (int i = 0; i < pictures.length; i++) {
+        for (var i = 0; i < pictures.length; i++) {
           pictureHandles[i] = (pictures[i] as SkwasmPicture).handle;
         }
         final int callbackId = surfaceRenderPictures(handle, pictureHandles, pictures.length);
-        final RasterResult rasterResult =
+        final rasterResult =
             (await SkwasmCallbackHandler.instance.registerCallback(callbackId)) as RasterResult;
         final RenderResult result = (
           imageBitmaps: rasterResult.imageBitmaps.toDart.cast<DomImageBitmap>(),
