@@ -76,8 +76,7 @@ Future<TaskResult> runWebBenchmark(
     return TaskResult.failure(e.message);
   }
 
-  final bool effectiveClean =
-      clean ?? (bool.tryParse(environment['BENCHMARK_CLEAN'] ?? 'true') ?? true);
+  final bool effectiveClean = clean ?? environment['BENCHMARK_CLEAN']?.toLowerCase() != 'false';
 
   // Reduce logging level. Otherwise, package:webkit_inspection_protocol is way too spammy.
   Logger.root.level = Level.INFO;
