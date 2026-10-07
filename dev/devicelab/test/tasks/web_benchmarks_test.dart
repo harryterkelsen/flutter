@@ -27,7 +27,7 @@ void main() {
     );
 
     test('combines targetBenchmarks and filterPattern (intersection)', () {
-      final filter = BenchmarkFilter(
+      final filter = BenchmarkFilter.parse(
         targetBenchmarks: <String>['draw_rect', 'bench_card'],
         filterPattern: r'^draw_',
       );
@@ -42,7 +42,7 @@ void main() {
     });
 
     test('regex pattern filtering', () {
-      final filter = BenchmarkFilter(filterPattern: r'^draw_');
+      final filter = BenchmarkFilter.parse(filterPattern: r'^draw_');
       final List<String> result = filter.filter(allBenchmarks);
       expect(result, <String>['draw_rect']);
     });
@@ -62,7 +62,7 @@ void main() {
     });
 
     test('error when regex matches zero benchmarks', () {
-      final filter = BenchmarkFilter(filterPattern: r'^non_existent_');
+      final filter = BenchmarkFilter.parse(filterPattern: r'^non_existent_');
       expect(
         () => filter.filter(allBenchmarks),
         throwsA(
@@ -76,7 +76,7 @@ void main() {
     });
 
     test('eager validation error when filterPattern is an invalid regex', () {
-      expect(() => BenchmarkFilter(filterPattern: '['), throwsA(isA<Exception>()));
+      expect(() => BenchmarkFilter.parse(filterPattern: '['), throwsA(isA<Exception>()));
     });
   });
 
@@ -100,7 +100,7 @@ void main() {
       final filter = BenchmarkFilter.parse(
         environment: <String, String>{'BENCHMARK_FILTER': r'^draw_'},
       );
-      expect(filter.filterPattern, r'^draw_');
+      expect(filter.compiledFilter?.pattern, r'^draw_');
     });
 
     test('ignores BENCHMARK_FILTER when filterPattern is provided', () {
@@ -108,7 +108,7 @@ void main() {
         filterPattern: 'skwasm',
         environment: <String, String>{'BENCHMARK_FILTER': r'^draw_'},
       );
-      expect(filter.filterPattern, 'skwasm');
+      expect(filter.compiledFilter?.pattern, 'skwasm');
     });
 
     test('fails fast on invalid regex in BENCHMARK_FILTER', () {
@@ -202,6 +202,7 @@ void main() {
 
     test('ignores data keys that match internal keys like "name" or "scoreKeys"', () {
       final TaskResult result = processBenchmarkProfiles(<Map<String, dynamic>>[
+        // ignore: equal_keys_in_map
         <String, dynamic>{
           'name': 'draw_rect',
           'scoreKeys': <String>['frame_build_times'],

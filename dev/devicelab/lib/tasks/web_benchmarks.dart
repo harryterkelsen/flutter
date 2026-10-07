@@ -524,11 +524,8 @@ Handler createBuildDirectoryHandler(String buildDirectoryPath) {
 /// Example filter patterns: `skwasm` (matches any benchmark name containing 'skwasm'),
 /// `^scroll_` (matches names starting with 'scroll_').
 class BenchmarkFilter {
-  BenchmarkFilter({List<String>? targetBenchmarks, this.filterPattern})
-    : targetBenchmarks = _parseTargetBenchmarks(targetBenchmarks),
-      compiledFilter = (filterPattern != null && filterPattern.isNotEmpty)
-          ? RegExp(filterPattern)
-          : null;
+  BenchmarkFilter({List<String>? targetBenchmarks, this.compiledFilter})
+    : targetBenchmarks = _parseTargetBenchmarks(targetBenchmarks);
 
   factory BenchmarkFilter.parse({
     List<String>? targetBenchmarks,
@@ -542,14 +539,19 @@ class BenchmarkFilter {
     final List<String>? effectiveTargets = targetBenchmarks ?? envTargets;
     final String? effectiveFilterPattern = filterPattern ?? environment['BENCHMARK_FILTER'];
 
-    return BenchmarkFilter(
-      targetBenchmarks: effectiveTargets,
-      filterPattern: effectiveFilterPattern,
-    );
+    RegExp? compiledFilter;
+    if (effectiveFilterPattern != null && effectiveFilterPattern.isNotEmpty) {
+      try {
+        compiledFilter = RegExp(effectiveFilterPattern);
+      } on FormatException catch (e) {
+        throw Exception('Invalid filterPattern "$effectiveFilterPattern": ${e.message}');
+      }
+    }
+
+    return BenchmarkFilter(targetBenchmarks: effectiveTargets, compiledFilter: compiledFilter);
   }
 
   final List<String>? targetBenchmarks;
-  final String? filterPattern;
   final RegExp? compiledFilter;
 
   List<String> filter(List<String> allBenchmarks) {
@@ -581,7 +583,7 @@ class BenchmarkFilter {
       throw Exception(
         'No benchmarks matched the requested filter.\n'
         '  Target benchmarks: $targetBenchmarks\n'
-        '  Filter pattern: $filterPattern\n'
+        '  Filter pattern: ${compiledFilter?.pattern}\n'
         '  Available benchmarks: [${allBenchmarks.join(', ')}]',
       );
     }
