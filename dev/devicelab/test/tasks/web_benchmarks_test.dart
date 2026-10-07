@@ -202,11 +202,11 @@ void main() {
 
     test('ignores data keys that match internal keys like "name" or "scoreKeys"', () {
       final TaskResult result = processBenchmarkProfiles(<Map<String, dynamic>>[
-        // ignore: equal_keys_in_map
         <String, dynamic>{
           'name': 'draw_rect',
           'scoreKeys': <String>['frame_build_times'],
           'frame_build_times': 123.4,
+          // ignore: equal_keys_in_map
           'name': 'another_name', // Should be ignored by the loop in processBenchmarkProfiles
         },
       ], options);
