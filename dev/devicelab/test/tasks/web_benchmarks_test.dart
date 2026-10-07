@@ -80,6 +80,45 @@ void main() {
     });
   });
 
+  group('BenchmarkFilter.parse (environment overrides)', () {
+    test('uses BENCHMARK_TARGETS when targetBenchmarks is null', () {
+      final filter = BenchmarkFilter.parse(
+        environment: <String, String>{'BENCHMARK_TARGETS': 'draw_rect, bench_card'},
+      );
+      expect(filter.targetBenchmarks, <String>['draw_rect', 'bench_card']);
+    });
+
+    test('ignores BENCHMARK_TARGETS when targetBenchmarks is provided', () {
+      final filter = BenchmarkFilter.parse(
+        targetBenchmarks: <String>['foo_bar'],
+        environment: <String, String>{'BENCHMARK_TARGETS': 'draw_rect, bench_card'},
+      );
+      expect(filter.targetBenchmarks, <String>['foo_bar']);
+    });
+
+    test('uses BENCHMARK_FILTER when filterPattern is null', () {
+      final filter = BenchmarkFilter.parse(
+        environment: <String, String>{'BENCHMARK_FILTER': r'^draw_'},
+      );
+      expect(filter.filterPattern, r'^draw_');
+    });
+
+    test('ignores BENCHMARK_FILTER when filterPattern is provided', () {
+      final filter = BenchmarkFilter.parse(
+        filterPattern: 'skwasm',
+        environment: <String, String>{'BENCHMARK_FILTER': r'^draw_'},
+      );
+      expect(filter.filterPattern, 'skwasm');
+    });
+
+    test('fails fast on invalid regex in BENCHMARK_FILTER', () {
+      expect(
+        () => BenchmarkFilter.parse(environment: <String, String>{'BENCHMARK_FILTER': '['}),
+        throwsA(isA<FormatException>()),
+      );
+    });
+  });
+
   group('processBenchmarkProfiles', () {
     const WebBenchmarkOptions options = (
       useWasm: false,

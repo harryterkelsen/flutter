@@ -65,30 +65,21 @@ Future<TaskResult> runWebBenchmark(
 }) async {
   environment ??= io.Platform.environment;
 
-  final List<String>? effectiveTargets =
-      _parseTargetBenchmarks(targetBenchmarks) ??
-      _parseTargetBenchmarks(
-        environment['BENCHMARK_TARGETS'] != null
-            ? <String>[environment['BENCHMARK_TARGETS']!]
-            : null,
-      );
-
-  final String? effectiveFilterPattern = filterPattern ?? environment['BENCHMARK_FILTER'];
+  final BenchmarkFilter benchmarkFilter;
+  try {
+    benchmarkFilter = BenchmarkFilter.parse(
+      targetBenchmarks: targetBenchmarks,
+      filterPattern: filterPattern,
+      environment: environment,
+    );
+  } on FormatException catch (e) {
+    return TaskResult.failure(e.message);
+  }
 
   final bool effectiveClean =
       clean ??
       (environment['BENCHMARK_CLEAN'] == null ||
           environment['BENCHMARK_CLEAN']!.toLowerCase() != 'false');
-
-  final BenchmarkFilter benchmarkFilter;
-  try {
-    benchmarkFilter = BenchmarkFilter(
-      targetBenchmarks: effectiveTargets,
-      filterPattern: effectiveFilterPattern,
-    );
-  } on FormatException catch (e) {
-    return TaskResult.failure(e.message);
-  }
 
   // Reduce logging level. Otherwise, package:webkit_inspection_protocol is way too spammy.
   Logger.root.level = Level.INFO;
@@ -488,8 +479,6 @@ Future<TaskResult> runWebBenchmark(
       final List<Map<String, dynamic>> profiles;
       try {
         profiles = await profileData.future;
-      } on Exception catch (e) {
-        return TaskResult.failure(e.toString());
       } catch (e) {
         return TaskResult.failure(e.toString());
       }
@@ -540,6 +529,24 @@ class BenchmarkFilter {
       compiledFilter = (filterPattern != null && filterPattern.isNotEmpty)
           ? RegExp(filterPattern)
           : null;
+
+  factory BenchmarkFilter.parse({
+    List<String>? targetBenchmarks,
+    String? filterPattern,
+    Map<String, String>? environment,
+  }) {
+    environment ??= const <String, String>{};
+    final List<String>? envTargets = environment['BENCHMARK_TARGETS'] != null
+        ? <String>[environment['BENCHMARK_TARGETS']!]
+        : null;
+    final List<String>? effectiveTargets = targetBenchmarks ?? envTargets;
+    final String? effectiveFilterPattern = filterPattern ?? environment['BENCHMARK_FILTER'];
+
+    return BenchmarkFilter(
+      targetBenchmarks: effectiveTargets,
+      filterPattern: effectiveFilterPattern,
+    );
+  }
 
   final List<String>? targetBenchmarks;
   final String? filterPattern;
@@ -627,11 +634,7 @@ TaskResult processBenchmarkProfiles(
     }
     for (final scoreKey in scoreKeys) {
       if (scoreKey.isEmpty) {
-        return TaskResult.failure(
-          'A score key is empty in benchmark "$benchmarkName". '
-          'Score keys are the metric names reported by the benchmark (e.g. "drawFrameDuration"). '
-          'Received [${scoreKeys.join(', ')}]',
-        );
+        return TaskResult.failure('Received an empty metric name in benchmark "$benchmarkName".');
       }
       benchmarkScoreKeys.add('$namespace.$scoreKey');
     }
