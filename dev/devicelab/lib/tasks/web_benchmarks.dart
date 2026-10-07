@@ -73,8 +73,7 @@ Future<TaskResult> runWebBenchmark(
             : null,
       );
 
-  final String? effectiveFilterPattern =
-      filterPattern ?? environment['BENCHMARK_FILTER'];
+  final String? effectiveFilterPattern = filterPattern ?? environment['BENCHMARK_FILTER'];
 
   final bool effectiveClean =
       clean ??
@@ -582,7 +581,6 @@ class BenchmarkFilter {
     return result;
   }
 }
-
 
 /// Parses a list of target benchmarks from an iterable of strings.
 /// Splits comma-separated values, trims whitespace, and removes empty strings.
