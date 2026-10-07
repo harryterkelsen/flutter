@@ -16,6 +16,23 @@ void main() {
       final List<String> result = filter.filter(allBenchmarks);
       expect(result, <String>['draw_rect', 'bench_card']);
     });
+    test(
+      'treats empty target list or only-whitespace targets as if no targetBenchmarks were provided',
+      () {
+        final filter = BenchmarkFilter(targetBenchmarks: <String>['  ', '']);
+        final List<String> result = filter.filter(allBenchmarks);
+        expect(result, allBenchmarks);
+      },
+    );
+
+    test('combines targetBenchmarks and filterPattern (intersection)', () {
+      final filter = BenchmarkFilter(
+        targetBenchmarks: <String>['draw_rect', 'bench_card'],
+        filterPattern: r'^draw_',
+      );
+      final List<String> result = filter.filter(allBenchmarks);
+      expect(result, <String>['draw_rect']);
+    });
 
     test('trimming whitespace in target benchmarks', () {
       final filter = BenchmarkFilter(targetBenchmarks: <String>[' draw_rect ', 'bench_card ']);
@@ -129,6 +146,30 @@ void main() {
       expect(result.succeeded, isTrue);
       expect(result.benchmarkScoreKeys, <String>['draw_rect.skwasm.frame_build_times']);
       expect(result.data, <String, dynamic>{'draw_rect.skwasm.frame_build_times': 123.4});
+    });
+
+    test('fails if scoreKeys contains empty string', () {
+      final TaskResult result = processBenchmarkProfiles(<Map<String, dynamic>>[
+        <String, dynamic>{
+          'name': 'draw_rect',
+          'scoreKeys': <String>['frame_build_times', ''],
+          'frame_build_times': 123.4,
+        },
+      ], options);
+      expect(result.succeeded, isFalse);
+      expect(result.message, contains('Score key is empty in benchmark'));
+    });
+
+    test('ignores data keys that match internal keys like "name" or "scoreKeys"', () {
+      final TaskResult result = processBenchmarkProfiles(<Map<String, dynamic>>[
+        <String, dynamic>{
+          'name': 'draw_rect',
+          'scoreKeys': <String>['frame_build_times'],
+          'frame_build_times': 123.4,
+          'name': 'another_name', // Should be ignored by the loop in processBenchmarkProfiles
+        },
+      ], options);
+      expect(result.succeeded, isTrue);
     });
   });
 
