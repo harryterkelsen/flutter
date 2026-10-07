@@ -531,9 +531,7 @@ class BenchmarkFilter {
     Map<String, String>? environment,
   }) {
     environment ??= const <String, String>{};
-    final List<String>? envTargets = environment['BENCHMARK_TARGETS'] != null
-        ? <String>[environment['BENCHMARK_TARGETS']!]
-        : null;
+    final List<String>? envTargets = environment['BENCHMARK_TARGETS']?.split(',');
     final List<String>? effectiveTargets = targetBenchmarks ?? envTargets;
     final String? effectiveFilterPattern = filterPattern ?? environment['BENCHMARK_FILTER'];
 
