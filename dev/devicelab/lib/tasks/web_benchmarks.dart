@@ -77,9 +77,7 @@ Future<TaskResult> runWebBenchmark(
   }
 
   final bool effectiveClean =
-      clean ??
-      (environment['BENCHMARK_CLEAN'] == null ||
-          environment['BENCHMARK_CLEAN']!.toLowerCase() != 'false');
+      clean ?? (bool.tryParse(environment['BENCHMARK_CLEAN'] ?? 'true') ?? true);
 
   // Reduce logging level. Otherwise, package:webkit_inspection_protocol is way too spammy.
   Logger.root.level = Level.INFO;
@@ -632,7 +630,7 @@ TaskResult processBenchmarkProfiles(
     final List<String> scoreKeys =
         (profile['scoreKeys'] as List<dynamic>?)?.whereType<String>().toList() ?? <String>[];
     if (scoreKeys.isEmpty) {
-      return TaskResult.failure('No score keys in benchmark "$benchmarkName"');
+      return TaskResult.failure('No metrics in benchmark "$benchmarkName"');
     }
     for (final scoreKey in scoreKeys) {
       if (scoreKey.isEmpty) {

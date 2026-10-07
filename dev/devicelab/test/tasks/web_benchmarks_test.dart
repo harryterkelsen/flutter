@@ -214,7 +214,7 @@ void main() {
     });
   });
 
-  group('runWebBenchmarkFromArgs / env overrides', () {
+  group('runWebBenchmarkFromArgs', () {
     const WebBenchmarkOptions options = (
       useWasm: false,
       forceSingleThreadedSkwasm: false,
