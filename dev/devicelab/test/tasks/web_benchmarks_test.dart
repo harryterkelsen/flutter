@@ -1,12 +1,10 @@
-import 'dart:io';
-
-import 'package:flutter_devicelab/framework/framework.dart';
+import 'package:flutter_devicelab/framework/task_result.dart';
 import 'package:flutter_devicelab/tasks/web_benchmarks.dart';
 import 'package:test/test.dart';
 
 void main() {
   group('BenchmarkFilter', () {
-    final List<String> allBenchmarks = <String>[
+    final allBenchmarks = <String>[
       'draw_rect',
       'bench_card',
       'foo_bar',
@@ -14,57 +12,58 @@ void main() {
     ];
 
     test('exact matching of single and multiple target benchmarks', () {
-      final BenchmarkFilter filter = BenchmarkFilter(targetBenchmarks: <String>['draw_rect', 'bench_card']);
+      final filter = BenchmarkFilter(targetBenchmarks: <String>['draw_rect', 'bench_card']);
       final List<String> result = filter.filter(allBenchmarks);
       expect(result, <String>['draw_rect', 'bench_card']);
     });
 
     test('trimming whitespace in target benchmarks', () {
-      final BenchmarkFilter filter = BenchmarkFilter(targetBenchmarks: <String>[' draw_rect ', 'bench_card ']);
+      final filter = BenchmarkFilter(targetBenchmarks: <String>[' draw_rect ', 'bench_card ']);
       final List<String> result = filter.filter(allBenchmarks);
       expect(result, <String>['draw_rect', 'bench_card']);
     });
 
     test('regex pattern filtering', () {
-      final BenchmarkFilter filter = BenchmarkFilter(filterPattern: r'^draw_');
+      final filter = BenchmarkFilter(filterPattern: r'^draw_');
       final List<String> result = filter.filter(allBenchmarks);
       expect(result, <String>['draw_rect']);
     });
 
     test('strict fail-fast error when target benchmark is missing/misspelled', () {
-      final BenchmarkFilter filter = BenchmarkFilter(targetBenchmarks: <String>['draw_rect', 'draw_rext']);
+      final filter = BenchmarkFilter(targetBenchmarks: <String>['draw_rect', 'draw_rext']);
       expect(
         () => filter.filter(allBenchmarks),
-        throwsA(isA<FormatException>().having(
-          (FormatException e) => e.message,
-          'message',
-          contains('Unrecognized target benchmark(s): [draw_rext]'),
-        )),
+        throwsA(
+          isA<FormatException>().having(
+            (FormatException e) => e.message,
+            'message',
+            contains('Unrecognized target benchmark(s): [draw_rext]'),
+          ),
+        ),
       );
     });
 
     test('error when regex matches zero benchmarks', () {
-      final BenchmarkFilter filter = BenchmarkFilter(filterPattern: r'^non_existent_');
+      final filter = BenchmarkFilter(filterPattern: r'^non_existent_');
       expect(
         () => filter.filter(allBenchmarks),
-        throwsA(isA<FormatException>().having(
-          (FormatException e) => e.message,
-          'message',
-          contains('No benchmarks matched the requested filter.'),
-        )),
+        throwsA(
+          isA<FormatException>().having(
+            (FormatException e) => e.message,
+            'message',
+            contains('No benchmarks matched the requested filter.'),
+          ),
+        ),
       );
     });
 
     test('eager validation error when filterPattern is an invalid regex', () {
-      expect(
-        () => BenchmarkFilter(filterPattern: '['),
-        throwsA(isA<FormatException>()),
-      );
+      expect(() => BenchmarkFilter(filterPattern: '['), throwsA(isA<FormatException>()));
     });
   });
 
   group('processBenchmarkProfiles', () {
-    final WebBenchmarkOptions options = (
+    const WebBenchmarkOptions options = (
       useWasm: false,
       forceSingleThreadedSkwasm: false,
       useDdc: false,
@@ -91,10 +90,7 @@ void main() {
 
     test('empty scoreKeys returns TaskResult.failure', () {
       final TaskResult result = processBenchmarkProfiles(<Map<String, dynamic>>[
-        <String, dynamic>{
-          'name': 'draw_rect',
-          'scoreKeys': <String>[],
-        },
+        <String, dynamic>{'name': 'draw_rect', 'scoreKeys': <String>[]},
       ], options);
       expect(result.succeeded, isFalse);
       expect(result.message, 'No score keys in benchmark "draw_rect"');
@@ -110,9 +106,7 @@ void main() {
       ], options);
       expect(result.succeeded, isTrue);
       expect(result.benchmarkScoreKeys, <String>['draw_rect.canvaskit.frame_build_times']);
-      expect(result.data, <String, dynamic>{
-        'draw_rect.canvaskit.frame_build_times': 123.4,
-      });
+      expect(result.data, <String, dynamic>{'draw_rect.canvaskit.frame_build_times': 123.4});
     });
 
     test('successful profile transformation into TaskResult.success (Wasm Skwasm)', () {
@@ -134,14 +128,12 @@ void main() {
       );
       expect(result.succeeded, isTrue);
       expect(result.benchmarkScoreKeys, <String>['draw_rect.skwasm.frame_build_times']);
-      expect(result.data, <String, dynamic>{
-        'draw_rect.skwasm.frame_build_times': 123.4,
-      });
+      expect(result.data, <String, dynamic>{'draw_rect.skwasm.frame_build_times': 123.4});
     });
   });
 
   group('runWebBenchmarkFromArgs / env overrides', () {
-    final WebBenchmarkOptions options = (
+    const WebBenchmarkOptions options = (
       useWasm: false,
       forceSingleThreadedSkwasm: false,
       useDdc: false,
