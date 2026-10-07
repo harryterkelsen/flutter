@@ -16,6 +16,7 @@ void main() {
       final List<String> result = filter.filter(allBenchmarks);
       expect(result, <String>['draw_rect', 'bench_card']);
     });
+
     test(
       'treats empty target list or only-whitespace targets as if no targetBenchmarks were provided',
       () {
@@ -51,8 +52,8 @@ void main() {
       expect(
         () => filter.filter(allBenchmarks),
         throwsA(
-          isA<FormatException>().having(
-            (FormatException e) => e.message,
+          isA<Exception>().having(
+            (Exception e) => e.toString(),
             'message',
             contains('Unrecognized target benchmark(s): [draw_rext]'),
           ),
@@ -65,8 +66,8 @@ void main() {
       expect(
         () => filter.filter(allBenchmarks),
         throwsA(
-          isA<FormatException>().having(
-            (FormatException e) => e.message,
+          isA<Exception>().having(
+            (Exception e) => e.toString(),
             'message',
             contains('No benchmarks matched the requested filter.'),
           ),
@@ -75,7 +76,7 @@ void main() {
     });
 
     test('eager validation error when filterPattern is an invalid regex', () {
-      expect(() => BenchmarkFilter(filterPattern: '['), throwsA(isA<FormatException>()));
+      expect(() => BenchmarkFilter(filterPattern: '['), throwsA(isA<Exception>()));
     });
   });
 
@@ -126,7 +127,7 @@ void main() {
       expect(result.data, <String, dynamic>{'draw_rect.canvaskit.frame_build_times': 123.4});
     });
 
-    test('successful profile transformation into TaskResult.success (Wasm Skwasm)', () {
+    test('successful profile transformation into TaskResult.success (Skwasm)', () {
       final TaskResult result = processBenchmarkProfiles(
         <Map<String, dynamic>>[
           <String, dynamic>{
@@ -157,7 +158,7 @@ void main() {
         },
       ], options);
       expect(result.succeeded, isFalse);
-      expect(result.message, contains('Score key is empty in benchmark'));
+      expect(result.message, contains('A score key is empty in benchmark'));
     });
 
     test('ignores data keys that match internal keys like "name" or "scoreKeys"', () {

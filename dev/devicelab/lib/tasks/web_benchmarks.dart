@@ -61,22 +61,25 @@ Future<TaskResult> runWebBenchmark(
   List<String>? targetBenchmarks,
   String? filterPattern,
   bool? clean,
+  Map<String, String>? environment,
 }) async {
+  environment ??= io.Platform.environment;
+
   final List<String>? effectiveTargets =
-      targetBenchmarks ??
-      io.Platform.environment['BENCHMARK_TARGETS']
-          ?.split(',')
-          .map((String s) => s.trim())
-          .where((String s) => s.isNotEmpty)
-          .toList();
+      _parseTargetBenchmarks(targetBenchmarks) ??
+      _parseTargetBenchmarks(
+        environment['BENCHMARK_TARGETS'] != null
+            ? <String>[environment['BENCHMARK_TARGETS']!]
+            : null,
+      );
 
   final String? effectiveFilterPattern =
-      filterPattern ?? io.Platform.environment['BENCHMARK_FILTER'];
+      filterPattern ?? environment['BENCHMARK_FILTER'];
 
   final bool effectiveClean =
       clean ??
-      (!(io.Platform.environment['BENCHMARK_CLEAN'] != null) ||
-          io.Platform.environment['BENCHMARK_CLEAN']!.toLowerCase() != 'false');
+      (environment['BENCHMARK_CLEAN'] == null ||
+          environment['BENCHMARK_CLEAN']!.toLowerCase() != 'false');
 
   final BenchmarkFilter benchmarkFilter;
   try {
@@ -486,8 +489,8 @@ Future<TaskResult> runWebBenchmark(
       final List<Map<String, dynamic>> profiles;
       try {
         profiles = await profileData.future;
-      } on FormatException catch (e) {
-        return TaskResult.failure(e.message);
+      } on Exception catch (e) {
+        return TaskResult.failure(e.toString());
       } catch (e) {
         return TaskResult.failure(e.toString());
       }
@@ -522,12 +525,19 @@ Handler createBuildDirectoryHandler(String buildDirectoryPath) {
   };
 }
 
+/// Filters benchmarks based on an exact list of targets or a regular expression pattern.
+///
+/// If [targetBenchmarks] is provided, only the exact benchmarks listed will be run. If
+/// [targetBenchmarks] is null, all benchmarks are considered candidates (unless further filtered).
+/// If [filterPattern] is provided, it is parsed as a [RegExp] and only benchmarks matching
+/// the pattern will be run.
+///
+/// Example target lists: `['scroll_perf', 'build_perf']`
+/// Example filter patterns: `skwasm` (matches any benchmark name containing 'skwasm'),
+/// `^scroll_` (matches names starting with 'scroll_').
 class BenchmarkFilter {
   BenchmarkFilter({List<String>? targetBenchmarks, this.filterPattern})
-    : targetBenchmarks = targetBenchmarks
-          ?.map((String s) => s.trim())
-          .where((String s) => s.isNotEmpty)
-          .toList(),
+    : targetBenchmarks = _parseTargetBenchmarks(targetBenchmarks),
       compiledFilter = (filterPattern != null && filterPattern.isNotEmpty)
           ? RegExp(filterPattern)
           : null;
@@ -544,7 +554,7 @@ class BenchmarkFilter {
       final Set<String> targetSet = targetBenchmarks!.toSet();
       final Set<String> missing = targetSet.difference(availableSet);
       if (missing.isNotEmpty) {
-        throw FormatException(
+        throw Exception(
           'Unrecognized target benchmark(s): [${missing.join(', ')}].\n'
           'Available benchmarks: [${allBenchmarks.join(', ')}]',
         );
@@ -562,7 +572,7 @@ class BenchmarkFilter {
 
     final List<String> result = filtered.toList();
     if (result.isEmpty) {
-      throw FormatException(
+      throw Exception(
         'No benchmarks matched the requested filter.\n'
         '  Target benchmarks: $targetBenchmarks\n'
         '  Filter pattern: $filterPattern\n'
@@ -571,6 +581,21 @@ class BenchmarkFilter {
     }
     return result;
   }
+}
+
+
+/// Parses a list of target benchmarks from an iterable of strings.
+/// Splits comma-separated values, trims whitespace, and removes empty strings.
+List<String>? _parseTargetBenchmarks(Iterable<String>? raw) {
+  if (raw == null || raw.isEmpty) {
+    return null;
+  }
+  final List<String> result = raw
+      .expand((String b) => b.split(','))
+      .map((String s) => s.trim())
+      .where((String s) => s.isNotEmpty)
+      .toList();
+  return result.isEmpty ? null : result;
 }
 
 TaskResult processBenchmarkProfiles(
@@ -605,7 +630,8 @@ TaskResult processBenchmarkProfiles(
     for (final scoreKey in scoreKeys) {
       if (scoreKey.isEmpty) {
         return TaskResult.failure(
-          'Score key is empty in benchmark "$benchmarkName". '
+          'A score key is empty in benchmark "$benchmarkName". '
+          'Score keys are the metric names reported by the benchmark (e.g. "drawFrameDuration"). '
           'Received [${scoreKeys.join(', ')}]',
         );
       }
@@ -645,16 +671,7 @@ Future<TaskResult> runWebBenchmarkFromArgs(
   }
 
   final rawBenchmarks = args['benchmark'] as List<String>?;
-  final List<String>? targetBenchmarks;
-  if (rawBenchmarks != null && rawBenchmarks.isNotEmpty) {
-    targetBenchmarks = rawBenchmarks
-        .expand((String b) => b.split(','))
-        .map((String s) => s.trim())
-        .where((String s) => s.isNotEmpty)
-        .toList();
-  } else {
-    targetBenchmarks = null;
-  }
+  final List<String>? targetBenchmarks = _parseTargetBenchmarks(rawBenchmarks);
 
   final filterPattern = args['filter'] as String?;
   final bool? clean = args.wasParsed('clean') ? args['clean'] as bool : null;
