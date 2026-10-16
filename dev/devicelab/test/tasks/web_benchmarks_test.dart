@@ -2,9 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:io' as io;
+
+import 'package:args/args.dart';
 import 'package:flutter_devicelab/framework/task_result.dart';
 import 'package:flutter_devicelab/tasks/web_benchmarks.dart';
 import 'package:flutter_devicelab/tasks/web_benchmarks_comparison.dart';
+import 'package:path/path.dart' as path;
 
 import '../common.dart';
 
@@ -478,6 +482,128 @@ zero.average                                                      0.0       2.2 
 
     test('returns an empty string when there are no metrics', () {
       expect(formatAnsiSummaryTable(const BenchmarkComparison(<MetricComparison>[])), isEmpty);
+    });
+  });
+
+  group('buildBenchmarkArgParser', () {
+    test('defines all CLI flags', () {
+      final ArgParser parser = buildBenchmarkArgParser();
+      expect(
+        parser.options.keys,
+        containsAll(<String>[
+          'help',
+          'benchmark',
+          'smoke-test',
+          'filter',
+          'baseline',
+          'results-file',
+          'renderer',
+          'regression-threshold',
+          'clean',
+          'no-build',
+          'local-engine-src-path',
+          'local-web-sdk',
+          'verbose',
+        ]),
+      );
+    });
+  });
+
+  // These tests only cover invocations that are rejected before any benchmark
+  // is built or run.
+  group('runBenchmarkCli', () {
+    late io.Directory tempDir;
+
+    setUp(() {
+      tempDir = io.Directory.systemTemp.createTempSync('run_local_web_benchmark_test.');
+    });
+
+    tearDown(() {
+      tempDir.deleteSync(recursive: true);
+    });
+
+    test('--help exits with code 0', () async {
+      expect(await runBenchmarkCli(<String>['--help']), 0);
+    });
+
+    test('unknown flag exits with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--invalid-flag']), 2);
+    });
+
+    test('unsupported --renderer exits with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--renderer=invalid_renderer']), 2);
+    });
+
+    test('--benchmark and --smoke-test together exit with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--benchmark=draw_rect', '--smoke-test']), 2);
+    });
+
+    test('--benchmark and --filter together exit with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--benchmark=draw_rect', '--filter=draw']), 2);
+    });
+
+    test('--smoke-test and --filter together exit with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--smoke-test', '--filter=draw']), 2);
+    });
+
+    test('empty --benchmark exits with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--benchmark=,']), 2);
+    });
+
+    test('invalid --filter regular expression exits with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--filter=[']), 2);
+    });
+
+    test('identical --baseline and --results-file paths exit with code 2', () async {
+      expect(
+        await runBenchmarkCli(<String>[
+          '--baseline=./path/to/file.json',
+          '--results-file=path/to/file.json',
+        ]),
+        2,
+      );
+    });
+
+    test('--clean with --no-build exits with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--clean', '--no-build']), 2);
+    });
+
+    test('--local-engine-src-path without --local-web-sdk exits with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--local-engine-src-path=/some/path']), 2);
+    });
+
+    test('--regression-threshold without --baseline exits with code 2', () async {
+      expect(await runBenchmarkCli(<String>['--regression-threshold=0.1']), 2);
+    });
+
+    test(
+      'negative, NaN, infinite, or non-numeric --regression-threshold exits with code 2',
+      () async {
+        for (final value in <String>['-0.1', 'NaN', 'Infinity', 'abc']) {
+          expect(
+            await runBenchmarkCli(<String>['--regression-threshold=$value', '--baseline=b.json']),
+            2,
+            reason: value,
+          );
+        }
+      },
+    );
+
+    test('missing --baseline file exits with code 2', () async {
+      final String baselinePath = path.join(tempDir.path, 'missing.json');
+      expect(await runBenchmarkCli(<String>['--baseline=$baselinePath']), 2);
+    });
+
+    test('--baseline file that is not a JSON object exits with code 2', () async {
+      for (final contents in <String>['not json', '[1, 2]']) {
+        final baselineFile = io.File(path.join(tempDir.path, 'baseline.json'))
+          ..writeAsStringSync(contents);
+        expect(
+          await runBenchmarkCli(<String>['--baseline=${baselineFile.path}']),
+          2,
+          reason: contents,
+        );
+      }
     });
   });
 }
