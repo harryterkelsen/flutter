@@ -109,11 +109,13 @@ class PlatformViewEmbedder {
     _context.sceneElements.add(PictureSceneElement(picture));
   }
 
-  /// Stores the hit-test [regions] reported by the framework for the next
-  /// frame.
+  /// Stores the hit-test [regions] reported by the framework.
   ///
-  /// The regions are applied when the frame is submitted: a group of hit-test
-  /// proxies is placed right after each platform view in the scene that has a
+  /// The regions are applied the next time a frame is submitted, which is
+  /// usually the frame of the scene most recently passed to
+  /// [EngineFlutterView.render]: the framework reports the regions right after
+  /// rendering, before the frame reaches [submitFrame]. A `<flt-hit-test-proxy>`
+  /// element is placed right after each platform view in the scene that has a
   /// non-empty group in [regions]. Groups for platform views that are not in
   /// the scene are ignored.
   ///
@@ -659,14 +661,13 @@ class PlatformViewEmbedder {
     if (missingViewIds.isNotEmpty) {
       // Drop the skipped views, so the next frame doesn't expect them to be
       // in the DOM.
-      composition.entities.removeWhere(
-        (CompositionEntity entity) =>
-            entity is CompositionPlatformView && missingViewIds.contains(entity.viewId),
-      );
       // Their hit-test proxies have nothing to protect, so drop them too.
       composition.entities.removeWhere(
-        (CompositionEntity entity) =>
-            entity is CompositionHitTestProxy && missingViewIds.contains(entity.viewId),
+        (CompositionEntity entity) => switch (entity) {
+          CompositionPlatformView(:final int viewId) ||
+          CompositionHitTestProxy(:final int viewId) => missingViewIds.contains(viewId),
+          CompositionCanvas() => false,
+        },
       );
       missingViewIds.forEach(_removeHitTestProxy);
       printWarning(
