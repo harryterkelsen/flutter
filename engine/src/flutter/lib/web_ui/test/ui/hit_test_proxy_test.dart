@@ -128,8 +128,6 @@ Future<void> testMain() async {
             .expand((ui.PointerDataPacket packet) => packet.data)
             .singleWhere((ui.PointerData data) => data.change == ui.PointerChange.down);
         expect(down.viewId, implicitView.viewId);
-        expect(down.physicalX / implicitView.devicePixelRatio, _dialogPoint.dx);
-        expect(down.physicalY / implicitView.devicePixelRatio, _dialogPoint.dy);
         expect(down.physicalX, _dialogPoint.dx * dpr);
         expect(down.physicalY, _dialogPoint.dy * dpr);
       });
@@ -242,7 +240,8 @@ Future<void> testMain() async {
         expect(_sceneChildren(), <String>['pv-$_pv1', 'proxy', 'pv-$_pv2', 'proxy']);
 
         // The platform views swap places. The regions aren't reported again,
-        // because the framework only reports changes.
+        // to check that proxies are keyed by platform view id, not by their
+        // position in the scene.
         await renderScene(_buildDialogScene(dpr, pv2First: true));
         expect(_sceneChildren(), <String>['pv-$_pv2', 'proxy', 'pv-$_pv1', 'proxy']);
         expectProxyFor(0, _pv2Rect);
