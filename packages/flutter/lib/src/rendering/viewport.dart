@@ -479,6 +479,17 @@ abstract class RenderViewportBase<ParentDataClass extends ContainerParentDataMix
         .forEach(visitor);
   }
 
+  // Mirrors [_paintContents]: only visible slivers are painted, in
+  // [childrenInPaintOrder].
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    for (final RenderSliver child in childrenInPaintOrder) {
+      if (child.geometry?.visible ?? false) {
+        visitor(child);
+      }
+    }
+  }
+
   /// The direction in which the [SliverConstraints.scrollOffset] increases.
   ///
   /// For example, if the [axisDirection] is [AxisDirection.down], a scroll
