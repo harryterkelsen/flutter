@@ -149,6 +149,12 @@ void main() {
       1: <Rect>{homeButton, barrier, dialogHeader},
       2: <Rect>{dialogButton},
     });
+
+    // The view hosting the dialog receives exactly the payload asserted above.
+    expect(
+      tester.view.lastHitTestRegions,
+      equals(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions),
+    );
   });
 
   testWidgets('a closing dialog stops claiming as soon as its exit animation starts', (
@@ -193,5 +199,9 @@ void main() {
     // paint would miss it.
     expect(homePainter.count, homePaintCount);
     expect(_lastRegions(), <int, Set<Rect>>{1: <Rect>{}});
+    expect(
+      tester.view.lastHitTestRegions,
+      equals(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions),
+    );
   });
 }
