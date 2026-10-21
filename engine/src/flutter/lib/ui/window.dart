@@ -410,13 +410,15 @@ class FlutterView {
   /// platform views.
   ///
   /// The [regions] are encoded as a flat, paint-ordered list of groups,
-  /// `[platformViewId, n, left, top, right, bottom × n, …]`, in physical
+  /// `[platformViewId, n, (left, top, right, bottom) × n, …]`, in physical
   /// pixels. Each group holds the rects that are painted after the platform
   /// view with id `platformViewId` and before the next platform view. An empty
   /// list means that no region covers any platform view.
   ///
-  /// The framework calls this method right after [render], so the regions
-  /// describe the scene that was just rendered.
+  /// The framework typically calls this method right after [render], so the
+  /// regions describe the scene that was just rendered. It may also call it
+  /// outside of a frame with an empty list to clear all regions, for example
+  /// when the feature is turned off.
   ///
   /// On the web, the engine uses the regions to stop pointer events that land
   /// on Flutter content painted over a platform view from reaching the

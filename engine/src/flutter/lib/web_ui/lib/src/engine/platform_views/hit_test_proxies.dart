@@ -16,7 +16,8 @@ typedef HitTestProxyGroup = ({int viewId, List<ui.Rect> rects});
 /// [ui.FlutterView.updateHitTestRegions].
 ///
 /// The [regions] are encoded as a flat, paint-ordered list of groups,
-/// `[platformViewId, n, left, top, right, bottom × n, …]`, in physical pixels.
+/// `[platformViewId, n, (left, top, right, bottom) × n, …]`, in physical
+/// pixels.
 List<HitTestProxyGroup> decodeHitTestRegions(Float64List regions) {
   final groups = <HitTestProxyGroup>[];
   var index = 0;
@@ -65,22 +66,22 @@ final DomEventListener _preventDefaultListener = createDomEventListener((DomEven
   event.preventDefault();
 });
 
-/// Replaces the children of a `<flt-hit-test-proxy>` [element] with one proxy
-/// per rect in [rects].
+/// Replaces the children of a `<flt-hit-test-proxy>` [element] with one child
+/// element per rect in [rects].
 ///
 /// The [rects] are in physical pixels and are converted to CSS pixels using
 /// [devicePixelRatio].
 void updateHitTestProxyElement(DomElement element, List<ui.Rect> rects, double devicePixelRatio) {
   element.clearChildren();
   for (final rect in rects) {
-    final DomElement proxy = createDomHTMLDivElement();
-    proxy.style
+    final DomElement rectElement = createDomHTMLDivElement();
+    rectElement.style
       ..position = 'absolute'
       ..pointerEvents = 'auto'
       ..left = '${rect.left / devicePixelRatio}px'
       ..top = '${rect.top / devicePixelRatio}px'
       ..width = '${rect.width / devicePixelRatio}px'
       ..height = '${rect.height / devicePixelRatio}px';
-    element.append(proxy);
+    element.append(rectElement);
   }
 }
