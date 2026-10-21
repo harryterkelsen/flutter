@@ -882,51 +882,6 @@ void main() {
     );
   });
 
-  testWidgets('pinned header painted over platform view list items claims its rect', (
-    WidgetTester tester,
-  ) async {
-    configureTestView(tester);
-    debugEnableHitTestRegionsOnAllPlatforms = true;
-    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
-
-    final controller = ScrollController(initialScrollOffset: 150);
-    addTearDown(controller.dispose);
-
-    await tester.pumpWidget(
-      Directionality(
-        textDirection: TextDirection.ltr,
-        child: CustomScrollView(
-          controller: controller,
-          cacheExtent: 0,
-          slivers: <Widget>[
-            const PinnedHeaderSliver(
-              child: SizedBox(height: 100, child: ColoredBox(color: Color(0xFF0000FF))),
-            ),
-            SliverFixedExtentList(
-              itemExtent: 250,
-              delegate: SliverChildBuilderDelegate(
-                (BuildContext context, int index) => _buildPlatformView(index + 1),
-                childCount: 10,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    // The list starts below the 100 pixel header and is scrolled by 150, so
-    // platform view 1 is at -50 to 200 (under the header), platform view 2 at
-    // 200 to 450 and platform view 3 at 450 to 700.
-    expect(tester.getRect(find.byType(ColoredBox)), const Rect.fromLTWH(0, 0, 800, 100));
-    // The viewport paints its first sliver last, so the pinned header is
-    // painted over every list item; its rect lands in the group of the last
-    // platform view painted before it.
-    expect(
-      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
-      equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 0.0, 0.0, 800.0, 100.0])),
-    );
-  });
-
   testWidgets('platform view in a sliver scrolled out of view starts no group', (
     WidgetTester tester,
   ) async {
@@ -1184,55 +1139,64 @@ void main() {
     },
   );
 
-  testWidgets('viewport painting its last sliver on top walks its slivers first to last', (
-    WidgetTester tester,
-  ) async {
-    configureTestView(tester);
-    debugEnableHitTestRegionsOnAllPlatforms = true;
-    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+  testWidgets(
+    'pinned header claims its rect only when the viewport paints it over platform views',
+    (WidgetTester tester) async {
+      configureTestView(tester);
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
 
-    final controller = ScrollController(initialScrollOffset: 150);
-    addTearDown(controller.dispose);
+      final controller = ScrollController(initialScrollOffset: 150);
+      addTearDown(controller.dispose);
 
-    Widget build(SliverPaintOrder paintOrder) {
-      return Directionality(
-        textDirection: TextDirection.ltr,
-        child: CustomScrollView(
-          controller: controller,
-          cacheExtent: 0,
-          paintOrder: paintOrder,
-          slivers: <Widget>[
-            const PinnedHeaderSliver(
-              child: SizedBox(height: 100, child: ColoredBox(color: Color(0xFF0000FF))),
-            ),
-            SliverFixedExtentList(
-              itemExtent: 250,
-              delegate: SliverChildBuilderDelegate(
-                (BuildContext context, int index) => _buildPlatformView(index + 1),
-                childCount: 10,
+      Widget build(SliverPaintOrder paintOrder) {
+        return Directionality(
+          textDirection: TextDirection.ltr,
+          child: CustomScrollView(
+            controller: controller,
+            cacheExtent: 0,
+            paintOrder: paintOrder,
+            slivers: <Widget>[
+              const PinnedHeaderSliver(
+                child: SizedBox(height: 100, child: ColoredBox(color: Color(0xFF0000FF))),
               ),
-            ),
-          ],
+              SliverFixedExtentList(
+                itemExtent: 250,
+                delegate: SliverChildBuilderDelegate(
+                  (BuildContext context, int index) => _buildPlatformView(index + 1),
+                  childCount: 10,
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      // The list starts below the 100 pixel header and is scrolled by 150, so
+      // platform view 1 is at -50 to 200 (under the header), platform view 2 at
+      // 200 to 450 and platform view 3 at 450 to 700.
+      //
+      // With the last sliver on top, the pinned header is painted first, under
+      // platform view 1, so it claims nothing.
+      await tester.pumpWidget(build(SliverPaintOrder.lastIsTop));
+      expect(tester.getRect(find.byType(ColoredBox)), const Rect.fromLTWH(0, 0, 800, 100));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 0.0])),
+      );
+
+      // With the first sliver on top (the default), the pinned header is painted
+      // over every list item; its rect lands in the group of the last platform
+      // view painted before it.
+      await tester.pumpWidget(build(SliverPaintOrder.firstIsTop));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(
+          Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 0.0, 0.0, 800.0, 100.0]),
         ),
       );
-    }
-
-    // The pinned header is painted first, under platform view 1 (at -50 to
-    // 200), so it claims nothing.
-    await tester.pumpWidget(build(SliverPaintOrder.lastIsTop));
-    expect(tester.getRect(find.byType(ColoredBox)), const Rect.fromLTWH(0, 0, 800, 100));
-    expect(
-      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
-      equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 0.0])),
-    );
-
-    // Switching the paint order puts the header back on top of the list.
-    await tester.pumpWidget(build(SliverPaintOrder.firstIsTop));
-    expect(
-      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
-      equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 0.0, 0.0, 800.0, 100.0])),
-    );
-  });
+    },
+  );
 
   testWidgets('platform view laid out in the cache extent of a reversed list starts no group', (
     WidgetTester tester,
