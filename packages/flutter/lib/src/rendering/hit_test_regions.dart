@@ -34,6 +34,52 @@ import 'viewport.dart';
 ///   if they overlap a platform view.
 typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Rect> rects});
 
+/// Whether [outer] completely contains [inner] (including its edges).
+bool _rectContains(Rect outer, Rect inner) {
+  return outer.left <= inner.left &&
+      outer.top <= inner.top &&
+      outer.right >= inner.right &&
+      outer.bottom >= inner.bottom;
+}
+
+/// Maps [localRect] by [transform] into the root coordinate space, using a fast
+/// path when [transform] is a 2D translation.
+Rect _toGlobal(Rect localRect, Matrix4 transform) {
+  final Float64List s = transform.storage;
+  if (s[0] == 1.0 &&
+      s[1] == 0.0 &&
+      s[2] == 0.0 &&
+      s[3] == 0.0 &&
+      s[4] == 0.0 &&
+      s[5] == 1.0 &&
+      s[6] == 0.0 &&
+      s[7] == 0.0 &&
+      s[8] == 0.0 &&
+      s[9] == 0.0 &&
+      s[10] == 1.0 &&
+      s[11] == 0.0 &&
+      s[14] == 0.0 &&
+      s[15] == 1.0) {
+    final double dx = s[12];
+    final double dy = s[13];
+    if (localRect.left.isFinite &&
+        localRect.top.isFinite &&
+        localRect.right.isFinite &&
+        localRect.bottom.isFinite) {
+      if (dx == 0.0 && dy == 0.0) {
+        return localRect;
+      }
+      return Rect.fromLTRB(
+        localRect.left + dx,
+        localRect.top + dy,
+        localRect.right + dx,
+        localRect.bottom + dy,
+      );
+    }
+  }
+  return MatrixUtils.transformRect(transform, localRect);
+}
+
 /// Walks the render tree rooted at [root] in child order (an approximation of
 /// paint order; see below) and encodes the regions in which render objects
 /// that paint on top of one or more [PlatformViewRenderBox] instances accept
@@ -133,6 +179,22 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 /// encountered during the walk.
 Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = true}) {
   final groups = <_PlatformViewHitTestGroup>[];
+  var currentGroupFullyCovered = false;
+
+  bool overlapsAnyPlatformView(Rect rect) {
+    if (!rect.isFinite || rect.isEmpty) {
+      return false;
+    }
+    for (var i = 0; i < groups.length; i++) {
+      final Rect platformViewRect = groups[i].platformViewRect;
+      if (platformViewRect.isFinite &&
+          !platformViewRect.isEmpty &&
+          rect.overlaps(platformViewRect)) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   // Records [localRect], in the local coordinates described by [transform], as
   // a hit-test region if it covers a platform view that has already been
@@ -145,7 +207,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     }
     // Map the local rect into the root coordinate space and clip it to what
     // can actually be hit.
-    Rect claimedRect = MatrixUtils.transformRect(transform, localRect);
+    Rect claimedRect = _toGlobal(localRect, transform);
     if (hitTestClip != null) {
       claimedRect = claimedRect.intersect(hitTestClip);
     }
@@ -154,19 +216,42 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     }
     // Only content that covers a platform view needs a region; everywhere
     // else Flutter already receives the pointer events.
-    var overlapsAnyPlatformView = false;
-    for (final group in groups) {
-      final Rect platformViewRect = group.platformViewRect;
-      if (platformViewRect.isFinite &&
-          !platformViewRect.isEmpty &&
-          claimedRect.overlaps(platformViewRect)) {
-        overlapsAnyPlatformView = true;
-        break;
+    if (!overlapsAnyPlatformView(claimedRect)) {
+      return;
+    }
+    // Attribute the region to the topmost platform view painted so far,
+    // deduplicating any rectangles within the group that are contained in
+    // another rectangle in the same group.
+    final List<Rect> rects = groups.last.rects;
+    for (var i = 0; i < rects.length; i++) {
+      if (_rectContains(rects[i], claimedRect)) {
+        return;
       }
     }
-    if (overlapsAnyPlatformView) {
-      // Attribute the region to the topmost platform view painted so far.
-      groups.last.rects.add(claimedRect);
+    var writeIndex = 0;
+    for (var i = 0; i < rects.length; i++) {
+      final Rect existing = rects[i];
+      if (!_rectContains(claimedRect, existing)) {
+        rects[writeIndex++] = existing;
+      }
+    }
+    rects.length = writeIndex;
+    rects.add(claimedRect);
+
+    if (!currentGroupFullyCovered) {
+      var coversAll = true;
+      for (var i = 0; i < groups.length; i++) {
+        final Rect platformViewRect = groups[i].platformViewRect;
+        if (platformViewRect.isFinite &&
+            !platformViewRect.isEmpty &&
+            !_rectContains(claimedRect, platformViewRect)) {
+          coversAll = false;
+          break;
+        }
+      }
+      if (coversAll) {
+        currentGroupFullyCovered = true;
+      }
     }
   }
 
@@ -186,7 +271,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
 
   // Maps [localRect] by [transform] into the root coordinate space.
   Rect toGlobal(Rect localRect, Matrix4 transform) {
-    return localRect.isEmpty ? Rect.zero : MatrixUtils.transformRect(transform, localRect);
+    return localRect.isEmpty ? Rect.zero : _toGlobal(localRect, transform);
   }
 
   // Intersects [clip] (null meaning unclipped) with [globalRect].
@@ -199,25 +284,38 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   // walk so that no closure is allocated per node; this is safe because
   // [RenderBox.visitHitTestRegions] reports synchronously and never
   // re-enters the walk.
-  var currentTransform = Matrix4.identity();
+  final transformStack = <Matrix4>[Matrix4.identity()];
+  Matrix4 currentTransform = transformStack[0];
   Rect? currentHitTestClip;
   void claimRegion(Rect localRect) {
     addClaimedRect(localRect, currentTransform, currentHitTestClip);
   }
 
+  late RenderObject currentParent;
+  var currentDepth = 0;
+  Rect? currentClip;
+  Rect? currentDescendantsHitTestClip;
+  var currentCanClaim = true;
+  int? currentClipMissedAtGroupCount;
+
   // Visits [node] and its descendants in paint order (see above).
   // [transform] maps [node]'s local coordinates to the root's, [clip] is the
   // accumulated paint clip in root coordinates (or null if unclipped),
   // [hitTestClip] is [clip] further restricted to the bounds of the ancestor
-  // boxes whose children cannot be hit outside of their bounds, and
-  // [canClaim] is false when pointer events cannot reach [node] because an
-  // ancestor's [RenderObject.hitTestsChildren] is false.
+  // boxes whose children cannot be hit outside of their bounds, [canClaim]
+  // is false when pointer events cannot reach [node] because an ancestor's
+  // [RenderObject.hitTestsChildren] is false, and [clipMissedAtGroupCount]
+  // records the `groups.length` at which an ancestor's hit-test clip missed all
+  // earlier platform views.
+  late final void Function(RenderObject child) visitChild;
   void visit(
     RenderObject node,
+    int depth,
     Matrix4 transform,
     Rect? clip,
     Rect? hitTestClip, {
     required bool canClaim,
+    required int? clipMissedAtGroupCount,
   }) {
     // Boxes that have never been laid out are neither painted nor hit tested,
     // and computing clips or transforms may read size.
@@ -267,6 +365,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
           platformViewRect: platformViewRect,
           rects: <Rect>[],
         ));
+        currentGroupFullyCovered = false;
       }
       return;
     }
@@ -276,13 +375,16 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     // Only boxes claim regions; render objects that are not boxes (such as
     // slivers) are never asked, and the boxes inside them claim instead.
     if (groups.isNotEmpty && canClaim && node is RenderBox) {
-      // visitHitTestRegions is protected, but asking a render box where it
-      // accepts pointer events is exactly the question this pass needs
-      // answered, without running a full hit test.
-      currentTransform = transform;
-      currentHitTestClip = hitTestClip;
-      // ignore: invalid_use_of_protected_member
-      node.visitHitTestRegions(claimRegion);
+      if (!(enableEarlyStop && currentGroupFullyCovered) &&
+          clipMissedAtGroupCount != groups.length) {
+        // visitHitTestRegions is protected, but asking a render box where it
+        // accepts pointer events is exactly the question this pass needs
+        // answered, without running a full hit test.
+        currentTransform = transform;
+        currentHitTestClip = hitTestClip;
+        // ignore: invalid_use_of_protected_member
+        node.visitHitTestRegions(claimRegion);
+      }
     }
 
     // A box whose hitTest rejects positions outside of its bounds before hit
@@ -296,43 +398,111 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     // The hit-test clip is only read when a region is claimed, so it is not
     // computed for subtrees in which nothing can claim.
     var descendantsHitTestClip = hitTestClip;
-    if (childrenCanClaim &&
+    final bool restrictsChildren = childrenCanClaim &&
         node is RenderBox &&
         node.hasSize &&
         // ignore: invalid_use_of_protected_member
-        !node.hitTestsChildrenOutsideBounds) {
+        !node.hitTestsChildrenOutsideBounds;
+    if (restrictsChildren) {
       descendantsHitTestClip = intersectClip(
         hitTestClip,
         toGlobal(Offset.zero & node.size, transform),
       );
     }
+    var descendantsClipMissedAtGroupCount = clipMissedAtGroupCount;
+    if (restrictsChildren &&
+        groups.isNotEmpty &&
+        descendantsClipMissedAtGroupCount != groups.length &&
+        descendantsHitTestClip != null &&
+        !overlapsAnyPlatformView(descendantsHitTestClip)) {
+      descendantsClipMissedAtGroupCount = groups.length;
+    }
 
     // Descend into the painted children in paint order, accumulating each
     // child's paint transform and clip.
-    node.visitChildrenInPaintOrder((RenderObject child) {
-      // A box that has never been laid out (for example, an overlay entry
-      // that has been offstage since it was inserted) is not painted, and
-      // computing its clip or its children's transforms may read its size.
-      if (child is RenderBox && !child.hasSize) {
-        return;
-      }
-      var childClip = clip;
-      var childHitTestClip = descendantsHitTestClip;
-      final Rect? localClip = paintClipOf(node, child);
-      if (localClip != null) {
-        final Rect globalClip = toGlobal(localClip, transform);
-        childClip = intersectClip(childClip, globalClip);
-        if (childrenCanClaim) {
-          childHitTestClip = intersectClip(childHitTestClip, globalClip);
-        }
-      }
-      final Matrix4 childTransform = transform.clone();
-      node.applyPaintTransform(child, childTransform);
-      visit(child, childTransform, childClip, childHitTestClip, canClaim: childrenCanClaim);
-    });
+    currentParent = node;
+    currentDepth = depth;
+    currentClip = clip;
+    currentDescendantsHitTestClip = descendantsHitTestClip;
+    currentCanClaim = childrenCanClaim;
+    currentClipMissedAtGroupCount = descendantsClipMissedAtGroupCount;
+    node.visitChildrenInPaintOrder(visitChild);
   }
 
-  visit(root, Matrix4.identity(), null, null, canClaim: true);
+  visitChild = (RenderObject child) {
+    // A box that has never been laid out (for example, an overlay entry
+    // that has been offstage since it was inserted) is not painted, and
+    // computing its clip or its children's transforms may read its size.
+    if (child is RenderBox && !child.hasSize) {
+      return;
+    }
+
+    final node = currentParent;
+    final depth = currentDepth;
+    final Matrix4 transform = transformStack[depth];
+    final clip = currentClip;
+    final descendantsHitTestClip = currentDescendantsHitTestClip;
+    final childCanClaim = currentCanClaim;
+    final clipMissedAtGroupCount = currentClipMissedAtGroupCount;
+
+    var childClip = clip;
+    var childHitTestClip = descendantsHitTestClip;
+    var childClipMissedAtGroupCount = clipMissedAtGroupCount;
+    final Rect? localClip = paintClipOf(node, child);
+    if (localClip != null) {
+      final Rect globalClip = toGlobal(localClip, transform);
+      childClip = intersectClip(childClip, globalClip);
+      if (childCanClaim) {
+        childHitTestClip = intersectClip(childHitTestClip, globalClip);
+      }
+      if (groups.isNotEmpty &&
+          childClipMissedAtGroupCount != groups.length &&
+          !overlapsAnyPlatformView(childHitTestClip)) {
+        childClipMissedAtGroupCount = groups.length;
+      }
+    } else if (childClipMissedAtGroupCount != null &&
+        childClipMissedAtGroupCount != groups.length &&
+        childHitTestClip != null &&
+        !overlapsAnyPlatformView(childHitTestClip)) {
+      childClipMissedAtGroupCount = groups.length;
+    }
+
+    final int nextDepth = depth + 1;
+    final Matrix4 childTransform;
+    if (nextDepth < transformStack.length) {
+      childTransform = transformStack[nextDepth]..setFrom(transform);
+    } else {
+      childTransform = Matrix4.copy(transform);
+      transformStack.add(childTransform);
+    }
+    node.applyPaintTransform(child, childTransform);
+    visit(
+      child,
+      nextDepth,
+      childTransform,
+      childClip,
+      childHitTestClip,
+      canClaim: childCanClaim,
+      clipMissedAtGroupCount: childClipMissedAtGroupCount,
+    );
+
+    currentParent = node;
+    currentDepth = depth;
+    currentClip = clip;
+    currentDescendantsHitTestClip = descendantsHitTestClip;
+    currentCanClaim = childCanClaim;
+    currentClipMissedAtGroupCount = clipMissedAtGroupCount;
+  };
+
+  visit(
+    root,
+    0,
+    transformStack[0],
+    null,
+    null,
+    canClaim: true,
+    clipMissedAtGroupCount: null,
+  );
 
   if (groups.isEmpty) {
     return null;
