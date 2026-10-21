@@ -329,8 +329,8 @@ void main() {
 
     // Small platform view at (100, 100) to (150, 150).
     final PlatformViewRenderBox pv = _createPlatformView(1);
-    // Large overlay at (0, 0) to (300, 300) partially overlapping pv -> emitted unclipped to pv.
-    final RenderBox largeOverlay = _createHitTarget(width: 300, height: 300);
+    // Large overlay at (0, 0) to (130, 130) partially overlapping pv -> emitted unclipped to pv.
+    final RenderBox largeOverlay = _createHitTarget(width: 130, height: 130);
     // Clipped and translated overlay: ClipRect of 60x60 translated to (110, 110) containing
     // a 200x200 hit target -> clipped to [110, 110, 170, 170].
     final RenderBox clippedAndTranslated = RenderTransform(
@@ -345,7 +345,7 @@ void main() {
       textDirection: TextDirection.ltr,
       children: <RenderBox>[
         _positioned(left: 100, top: 100, width: 50, height: 50, child: pv),
-        _positioned(left: 0, top: 0, width: 300, height: 300, child: largeOverlay),
+        _positioned(left: 0, top: 0, width: 130, height: 130, child: largeOverlay),
         _positioned(left: 0, top: 0, width: 60, height: 60, child: clippedAndTranslated),
       ],
     );
@@ -361,8 +361,8 @@ void main() {
           2.0,
           0.0,
           0.0,
-          300.0,
-          300.0,
+          130.0,
+          130.0,
           110.0,
           110.0,
           170.0,
@@ -400,26 +400,19 @@ void main() {
     layout(stack, phase: EnginePhase.composite);
     binding.pumpCompleteFrame();
 
-    // PV1 group (id 10) receives exactly the 3 rects painted between PV1 and PV2.
+    // PV1 group (id 10) receives the modalBarrier rect [0, 0, 800, 600], which
+    // subsumes buttonOverPv1 and dialogChromeBeforePv2.
     // PV2 group (id 20) receives only the rect painted after PV2.
     expect(
       binding.rootPipelineOwner.debugLastHitTestRegions,
       equals(
         Float64List.fromList(<double>[
           10.0,
-          3.0,
-          20.0,
-          30.0,
-          100.0,
-          70.0,
+          1.0,
           0.0,
           0.0,
           800.0,
           600.0,
-          100.0,
-          100.0,
-          300.0,
-          140.0,
           20.0,
           1.0,
           120.0,
