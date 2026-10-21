@@ -61,22 +61,20 @@ class _PlatformViewUnderM3ComponentsApp extends StatefulWidget {
 
 class _PlatformViewUnderM3ComponentsAppState extends State<_PlatformViewUnderM3ComponentsApp>
     with SingleTickerProviderStateMixin {
-  late final ScrollController _scrollController = ScrollController();
   Ticker? _ticker;
+  int _generation = 0;
 
   @override
   void initState() {
     super.initState();
-    var forward = true;
     Timer.run(() {
       if (!mounted) {
         return;
       }
       _ticker = createTicker((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.jumpTo(forward ? 1.0 : 0.0);
-          forward = !forward;
-        }
+        setState(() {
+          _generation += 1;
+        });
       })..start();
     });
   }
@@ -84,7 +82,6 @@ class _PlatformViewUnderM3ComponentsAppState extends State<_PlatformViewUnderM3C
   @override
   void dispose() {
     _ticker?.dispose();
-    _scrollController.dispose();
     super.dispose();
   }
 
@@ -97,53 +94,56 @@ class _PlatformViewUnderM3ComponentsAppState extends State<_PlatformViewUnderM3C
         body: Stack(
           children: <Widget>[
             const Positioned.fill(child: HtmlElementView(viewType: _viewType)),
-            ListView(
-              controller: _scrollController,
-              children: <Widget>[
-                const m3.Actions(),
-                m3.colDivider,
-                const m3.Communication(),
-                m3.colDivider,
-                const m3.Containment(),
-                m3.colDivider,
-                m3.Navigation(scaffoldKey: m3.scaffoldKey),
-                m3.colDivider,
-                const m3.Selection(),
-                m3.colDivider,
-                const m3.TextInputs(),
-              ],
-            ),
-            Positioned(
-              right: 16,
-              bottom: 16,
-              width: 320,
-              child: AlertDialog(
-                title: const Text('Overlay Dialog'),
-                content: const Text('Dialog stacked over platform view'),
-                actions: <Widget>[
-                  TextButton(onPressed: () {}, child: const Text('Cancel')),
-                  FilledButton(onPressed: () {}, child: const Text('OK')),
-                ],
-              ),
-            ),
-            Positioned(
-              left: 16,
-              bottom: 16,
-              width: 320,
-              child: BottomSheet(
-                onClosing: () {},
-                builder: (BuildContext context) {
-                  return Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: <Widget>[
-                        const Text('Sheet over platform view'),
-                        FilledButton.tonal(onPressed: () {}, child: const Text('Action')),
+            KeyedSubtree(
+              key: ValueKey<int>(_generation),
+              child: Stack(
+                children: <Widget>[
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: m3.FirstComponentList(
+                          showNavBottomBar: true,
+                          scaffoldKey: m3.scaffoldKey,
+                          showSecondList: true,
+                        ),
+                      ),
+                      Expanded(child: m3.SecondComponentList(scaffoldKey: m3.scaffoldKey)),
+                    ],
+                  ),
+                  Positioned(
+                    right: 16,
+                    bottom: 16,
+                    width: 320,
+                    child: AlertDialog(
+                      title: const Text('Overlay Dialog'),
+                      content: const Text('Dialog stacked over platform view'),
+                      actions: <Widget>[
+                        TextButton(onPressed: () {}, child: const Text('Cancel')),
+                        FilledButton(onPressed: () {}, child: const Text('OK')),
                       ],
                     ),
-                  );
-                },
+                  ),
+                  Positioned(
+                    left: 16,
+                    bottom: 16,
+                    width: 320,
+                    child: BottomSheet(
+                      onClosing: () {},
+                      builder: (BuildContext context) {
+                        return Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: <Widget>[
+                              const Text('Sheet over platform view'),
+                              FilledButton.tonal(onPressed: () {}, child: const Text('Action')),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
