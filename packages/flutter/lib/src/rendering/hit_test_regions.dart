@@ -176,7 +176,12 @@ Float64List? computeHitTestRegions(RenderObject root) {
   }
 
   // Whether [node] rejects pointer events outside of its own bounds before
-  // hit testing its children, as [RenderBox.hitTest] does by default.
+  // hit testing its children, as [RenderBox.hitTest] does by default. The
+  // exceptions are the framework's render boxes whose hitTest override
+  // forwards to their children without checking `size.contains`; extend this
+  // list when adding such a box. Other boxes that skip the check are
+  // restricted conservatively (their descendants under-claim; they never
+  // over-claim).
   bool hitTestsWithinBounds(RenderObject node) {
     return node is RenderBox &&
         node.hasSize &&
@@ -185,13 +190,25 @@ Float64List? computeHitTestRegions(RenderObject root) {
         node is! RenderFollowerLayer;
   }
 
-  // Intersects [clip] with [localRect] mapped by [transform] into the root
-  // coordinate space.
-  Rect intersectClip(Rect? clip, Rect localRect, Matrix4 transform) {
-    final Rect globalRect = localRect.isEmpty
-        ? Rect.zero
-        : MatrixUtils.transformRect(transform, localRect);
+  // Maps [localRect] by [transform] into the root coordinate space.
+  Rect toGlobal(Rect localRect, Matrix4 transform) {
+    return localRect.isEmpty ? Rect.zero : MatrixUtils.transformRect(transform, localRect);
+  }
+
+  // Intersects [clip] (null meaning unclipped) with [globalRect].
+  Rect intersectClip(Rect? clip, Rect globalRect) {
     return clip == null ? globalRect : clip.intersect(globalRect);
+  }
+
+  // The transform and hit-test clip of the node whose regions are currently
+  // being collected by [claimRegion]. A single visitor is shared by the whole
+  // walk so that no closure is allocated per node; this is safe because
+  // [RenderObject.visitHitTestRegions] reports synchronously and never
+  // re-enters the walk.
+  var currentTransform = Matrix4.identity();
+  Rect? currentHitTestClip;
+  void claimRegion(Rect localRect) {
+    addClaimedRect(localRect, currentTransform, currentHitTestClip);
   }
 
   // Visits [node] and its descendants in paint order (see above). [transform] maps
@@ -246,16 +263,16 @@ Float64List? computeHitTestRegions(RenderObject root) {
       // visitHitTestRegions is protected, but asking a render object where it
       // accepts pointer events is exactly the question this pass needs
       // answered, without running a full hit test.
+      currentTransform = transform;
+      currentHitTestClip = hitTestClip;
       // ignore: invalid_use_of_protected_member
-      node.visitHitTestRegions((Rect localRect) {
-        addClaimedRect(localRect, transform, hitTestClip);
-      });
+      node.visitHitTestRegions(claimRegion);
     }
 
     // A box that only hit tests within its bounds restricts where its
     // descendants can be hit, even if it does not clip their painting.
     final Rect? descendantsHitTestClip = hitTestsWithinBounds(node)
-        ? intersectClip(hitTestClip, Offset.zero & (node as RenderBox).size, transform)
+        ? intersectClip(hitTestClip, toGlobal(Offset.zero & (node as RenderBox).size, transform))
         : hitTestClip;
 
     // Descend into the painted children in paint order, accumulating each
@@ -265,8 +282,9 @@ Float64List? computeHitTestRegions(RenderObject root) {
       var childHitTestClip = descendantsHitTestClip;
       final Rect? localClip = paintClipOf(node, child);
       if (localClip != null) {
-        childClip = intersectClip(childClip, localClip, transform);
-        childHitTestClip = intersectClip(childHitTestClip, localClip, transform);
+        final Rect globalClip = toGlobal(localClip, transform);
+        childClip = intersectClip(childClip, globalClip);
+        childHitTestClip = intersectClip(childHitTestClip, globalClip);
       }
       final Matrix4 childTransform = transform.clone();
       node.applyPaintTransform(child, childTransform);
