@@ -29,6 +29,31 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// A point over PV1 that the overlays opened by the scenarios below leave
+  /// uncovered, so that a click there lands on their modal barrier.
+  const barrierPoint = Offset(20, 20);
+
+  /// Lets browser pointer events reach the app, not just the test binding,
+  /// for the rest of the current test.
+  void propagateBrowserPointerEvents() {
+    binding.shouldPropagateDevicePointerEvents = true;
+    addTearDown(() => binding.shouldPropagateDevicePointerEvents = false);
+  }
+
+  /// Starts the app with the full-screen PV1, and checks that a real click on
+  /// PV1 reaches it while nothing is painted over it.
+  Future<void> startPv1App(WidgetTester tester) async {
+    propagateBrowserPointerEvents();
+
+    app.main();
+    await tester.pumpAndSettle();
+    await app.pv1Loaded.timeout(const Duration(seconds: 10));
+
+    final Offset pv1Point = tester.getCenter(find.byType(HtmlElementView));
+    await realClick(tester, 'click_pv1_uncovered', pv1Point);
+    expect(app.pv1Clicks, 1, reason: 'A real click on uncovered PV1 must reach its document.');
+  }
+
   // Semantics stay off, as in an app without assistive technology: with
   // semantics on, the dialog's ARIA nodes intercept clicks above every
   // platform view (including PV2), which hides what this test checks.
@@ -36,18 +61,8 @@ void main() {
     'real clicks over a platform view under a dialog reach Flutter, not the platform view',
     semanticsEnabled: false,
     (WidgetTester tester) async {
-      // Browser pointer events must reach the app, not just the test binding.
-      binding.shouldPropagateDevicePointerEvents = true;
-      addTearDown(() => binding.shouldPropagateDevicePointerEvents = false);
-
-      app.main();
-      await tester.pumpAndSettle();
-      await app.pv1Loaded.timeout(const Duration(seconds: 10));
-
       // Control: with nothing painted over it, PV1 receives a real click.
-      final Offset pv1Point = tester.getCenter(find.byType(HtmlElementView));
-      await realClick(tester, 'click_pv1_uncovered', pv1Point);
-      expect(app.pv1Clicks, 1, reason: 'A real click on uncovered PV1 must reach its document.');
+      await startPv1App(tester);
 
       app.openDialog();
       await tester.pumpAndSettle();
@@ -56,7 +71,6 @@ void main() {
 
       final Offset pv2Center = tester.getCenter(find.byKey(app.pv2Key));
       final Offset dialogBodyPoint = tester.getCenter(find.byKey(app.dialogTitleKey));
-      const barrierPoint = Offset(20, 20);
       // The dialog's surface, not the full-screen Dialog widget (which includes
       // its insets), must leave the barrier point uncovered.
       final Finder dialogSurface = find
@@ -98,26 +112,6 @@ void main() {
       );
     },
   );
-
-  /// A point over PV1 that the overlays opened by the scenarios below leave
-  /// uncovered, so that a click there lands on their modal barrier.
-  const barrierPoint = Offset(20, 20);
-
-  /// Starts the app with the full-screen PV1, and checks that a real click on
-  /// PV1 reaches it while nothing is painted over it.
-  Future<void> startPv1App(WidgetTester tester) async {
-    // Browser pointer events must reach the app, not just the test binding.
-    binding.shouldPropagateDevicePointerEvents = true;
-    addTearDown(() => binding.shouldPropagateDevicePointerEvents = false);
-
-    app.main();
-    await tester.pumpAndSettle();
-    await app.pv1Loaded.timeout(const Duration(seconds: 10));
-
-    final Offset pv1Point = tester.getCenter(find.byType(HtmlElementView));
-    await realClick(tester, 'click_pv1_uncovered', pv1Point);
-    expect(app.pv1Clicks, 1, reason: 'A real click on uncovered PV1 must reach its document.');
-  }
 
   testWidgets(
     'real clicks over a platform view under a modal bottom sheet reach Flutter',
@@ -327,9 +321,7 @@ void main() {
     'real clicks on a pinned app bar and a FAB over scrolled platform views reach Flutter',
     semanticsEnabled: false,
     (WidgetTester tester) async {
-      // Browser pointer events must reach the app, not just the test binding.
-      binding.shouldPropagateDevicePointerEvents = true;
-      addTearDown(() => binding.shouldPropagateDevicePointerEvents = false);
+      propagateBrowserPointerEvents();
 
       app.mainScrolledList();
       await tester.pumpAndSettle();

@@ -426,13 +426,20 @@ abstract class RenderSliverMultiBoxAdaptor extends RenderSliver
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     RenderBox? child = firstChild;
     while (child != null) {
-      final double mainAxisDelta = childMainAxisPosition(child);
-      if (mainAxisDelta < constraints.remainingPaintExtent &&
-          mainAxisDelta + paintExtentOf(child) > 0) {
+      if (_isChildPainted(child, childMainAxisPosition(child))) {
         visitor(child);
       }
       child = childAfter(child);
     }
+  }
+
+  // Whether [paint] paints [child], whose main axis position is
+  // [mainAxisDelta]: a child whose visible interval (mainAxisDelta,
+  // mainAxisDelta + paintExtentOf(child)) does not intersect the paint extent
+  // interval (0, constraints.remainingPaintExtent) is hidden.
+  bool _isChildPainted(RenderBox child, double mainAxisDelta) {
+    return mainAxisDelta < constraints.remainingPaintExtent &&
+        mainAxisDelta + paintExtentOf(child) > 0;
   }
 
   @override
@@ -750,10 +757,7 @@ abstract class RenderSliverMultiBoxAdaptor extends RenderSliver
         childOffset += mainAxisUnit * paintExtentOf(child);
       }
 
-      // If the child's visible interval (mainAxisDelta, mainAxisDelta + paintExtentOf(child))
-      // does not intersect the paint extent interval (0, constraints.remainingPaintExtent), it's hidden.
-      if (mainAxisDelta < constraints.remainingPaintExtent &&
-          mainAxisDelta + paintExtentOf(child) > 0) {
+      if (_isChildPainted(child, mainAxisDelta)) {
         context.paintChild(child, childOffset);
       }
 
