@@ -122,7 +122,7 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///
 /// Returns `null` if no [PlatformViewRenderBox] with a non-empty size is
 /// encountered during the walk.
-Float64List? computeHitTestRegions(RenderObject root) {
+Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = true}) {
   final groups = <_PlatformViewHitTestGroup>[];
 
   // Records [localRect], in the local coordinates described by [transform], as
