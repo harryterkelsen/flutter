@@ -160,6 +160,110 @@ Future<void> testMain() async {
         expect(rects, hasLength(1));
         _expectProxyRect(rects.single, _barrierRect);
       });
+
+      test('updates proxy rects when only the regions or device pixel ratio change', () async {
+        await renderDialogOverPlatformView();
+        expect(_singleProxy().children.toList(), hasLength(2));
+
+        // Same scene, so the composition is unchanged; only the regions differ.
+        await _renderWithHitTestRegions(
+          _buildDialogScene(dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_pv2Rect]),
+          ], dpr),
+        );
+
+        expect(_sceneChildren(), <String>['pv-$_pv1', 'proxy', 'pv-$_pv2']);
+        List<DomElement> rects = _singleProxy().children.toList();
+        expect(rects, hasLength(1));
+        _expectProxyRect(rects.single, _pv2Rect);
+        expect(_platformViewIdOf(_elementAt(_barrierPoint)), _pv1);
+
+        // The device pixel ratio swaps between 1 and 2 while the regions (in
+        // physical pixels) aren't reported again.
+        final double newDpr = 3 - dpr;
+        EngineFlutterDisplay.instance.debugOverrideDevicePixelRatio(newDpr);
+        await renderScene(_buildDialogScene(newDpr));
+
+        rects = _singleProxy().children.toList();
+        expect(rects, hasLength(1));
+        _expectProxyRect(rects.single, _scale(_pv2Rect, dpr / newDpr));
+      });
+
+      test('applies the latest regions reported before the next frame', () async {
+        final ui.FlutterView view = implicitView;
+
+        // Two reports before a single frame: the last one wins.
+        final Future<void> rendered = renderScene(_buildDialogScene(dpr));
+        view.updateHitTestRegions(
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_barrierRect, _dialogRect]),
+          ], dpr),
+        );
+        view.updateHitTestRegions(
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_dialogRect]),
+          ], dpr),
+        );
+        await rendered;
+
+        List<DomElement> rects = _singleProxy().children.toList();
+        expect(rects, hasLength(1));
+        _expectProxyRect(rects.single, _dialogRect);
+
+        // A report after the frame doesn't touch the DOM until the next frame.
+        view.updateHitTestRegions(
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_barrierRect]),
+          ], dpr),
+        );
+        rects = _singleProxy().children.toList();
+        expect(rects, hasLength(1));
+        _expectProxyRect(rects.single, _dialogRect);
+
+        await renderScene(_buildDialogScene(dpr));
+        rects = _singleProxy().children.toList();
+        expect(rects, hasLength(1));
+        _expectProxyRect(rects.single, _barrierRect);
+      });
+
+      test('proxies follow their platform views as the scene changes', () async {
+        final Float64List regions = _payload(<(int, List<ui.Rect>)>[
+          (_pv1, <ui.Rect>[_barrierRect]),
+          (_pv2, <ui.Rect>[_pv2Rect]),
+        ], dpr);
+        void expectProxyFor(int index, ui.Rect rect) {
+          final List<DomElement> rects = _proxies()[index].children.toList();
+          expect(rects, hasLength(1));
+          _expectProxyRect(rects.single, rect);
+        }
+
+        await _renderWithHitTestRegions(_buildDialogScene(dpr), regions);
+        expect(_sceneChildren(), <String>['pv-$_pv1', 'proxy', 'pv-$_pv2', 'proxy']);
+
+        // The platform views swap places. The regions aren't reported again,
+        // because the framework only reports changes.
+        await renderScene(_buildDialogScene(dpr, pv2First: true));
+        expect(_sceneChildren(), <String>['pv-$_pv2', 'proxy', 'pv-$_pv1', 'proxy']);
+        expectProxyFor(0, _pv2Rect);
+        expectProxyFor(1, _barrierRect);
+
+        // PV2 leaves the scene, taking its proxy with it.
+        await renderScene(_buildDialogScene(dpr, includePv2: false));
+        expect(_sceneChildren(), <String>['pv-$_pv1', 'proxy']);
+        expect(_proxies(), hasLength(1));
+        expectProxyFor(0, _barrierRect);
+
+        // PV2 comes back, and so does its proxy.
+        await renderScene(_buildDialogScene(dpr));
+        expect(_sceneChildren(), <String>['pv-$_pv1', 'proxy', 'pv-$_pv2', 'proxy']);
+        expectProxyFor(0, _barrierRect);
+        expectProxyFor(1, _pv2Rect);
+
+        // Disposing the view's rendering state removes every proxy.
+        renderer.debugClear();
+        expect(_proxies(), isEmpty);
+      });
     });
   }
 }
@@ -175,7 +279,9 @@ Future<void> _renderWithHitTestRegions(ui.Scene scene, Float64List regions) asyn
 
 /// Builds a scene with PV1, a dialog picture over it, and (optionally) PV2
 /// inside the dialog. All coordinates are in physical pixels.
-ui.Scene _buildDialogScene(double dpr, {bool includePv2 = true}) {
+///
+/// If [pv2First] is true, PV2 is added before the dialog and PV1 after it.
+ui.Scene _buildDialogScene(double dpr, {bool includePv2 = true, bool pv2First = false}) {
   final ui.Rect pv1 = _scale(_pv1Rect, dpr);
   final ui.Rect pv2 = _scale(_pv2Rect, dpr);
   final ui.Picture dialog = drawPicture((ui.Canvas canvas) {
@@ -184,12 +290,20 @@ ui.Scene _buildDialogScene(double dpr, {bool includePv2 = true}) {
   });
 
   final sb = ui.SceneBuilder();
-  sb.pushOffset(0, 0);
-  sb.addPlatformView(_pv1, offset: pv1.topLeft, width: pv1.width, height: pv1.height);
-  sb.addPicture(ui.Offset.zero, dialog);
-  if (includePv2) {
-    sb.addPlatformView(_pv2, offset: pv2.topLeft, width: pv2.width, height: pv2.height);
+  void addPv1() {
+    sb.addPlatformView(_pv1, offset: pv1.topLeft, width: pv1.width, height: pv1.height);
   }
+
+  void addPv2() {
+    if (includePv2) {
+      sb.addPlatformView(_pv2, offset: pv2.topLeft, width: pv2.width, height: pv2.height);
+    }
+  }
+
+  sb.pushOffset(0, 0);
+  pv2First ? addPv2() : addPv1();
+  sb.addPicture(ui.Offset.zero, dialog);
+  pv2First ? addPv1() : addPv2();
   sb.pop();
   return sb.build();
 }
