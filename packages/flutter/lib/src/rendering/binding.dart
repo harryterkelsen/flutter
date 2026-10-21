@@ -272,7 +272,10 @@ mixin RendererBinding
       (pipelineOwner.rootNode as RenderView?)?.clearSemantics();
     },
     onHitTestRegionsUpdate: (Float64List regions) {
-      (pipelineOwner.rootNode as RenderView?)?.flutterView.updateHitTestRegions(regions);
+      final FlutterView? view = (pipelineOwner.rootNode as RenderView?)?.flutterView;
+      if (view != null && (kIsWeb || view.runtimeType != FlutterView)) {
+        (view as dynamic).updateHitTestRegions(regions);
+      }
     },
   );
 
