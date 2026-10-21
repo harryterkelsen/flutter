@@ -1183,4 +1183,209 @@ void main() {
       );
     },
   );
+
+  testWidgets('viewport painting its last sliver on top walks its slivers first to last', (
+    WidgetTester tester,
+  ) async {
+    configureTestView(tester);
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+    final controller = ScrollController(initialScrollOffset: 150);
+    addTearDown(controller.dispose);
+
+    Widget build(SliverPaintOrder paintOrder) {
+      return Directionality(
+        textDirection: TextDirection.ltr,
+        child: CustomScrollView(
+          controller: controller,
+          cacheExtent: 0,
+          paintOrder: paintOrder,
+          slivers: <Widget>[
+            const PinnedHeaderSliver(
+              child: SizedBox(height: 100, child: ColoredBox(color: Color(0xFF0000FF))),
+            ),
+            SliverFixedExtentList(
+              itemExtent: 250,
+              delegate: SliverChildBuilderDelegate(
+                (BuildContext context, int index) => _buildPlatformView(index + 1),
+                childCount: 10,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // The pinned header is painted first, under platform view 1 (at -50 to
+    // 200), so it claims nothing.
+    await tester.pumpWidget(build(SliverPaintOrder.lastIsTop));
+    expect(tester.getRect(find.byType(ColoredBox)), const Rect.fromLTWH(0, 0, 800, 100));
+    expect(
+      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 0.0])),
+    );
+
+    // Switching the paint order puts the header back on top of the list.
+    await tester.pumpWidget(build(SliverPaintOrder.firstIsTop));
+    expect(
+      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 0.0, 0.0, 800.0, 100.0])),
+    );
+  });
+
+  testWidgets('platform view laid out in the cache extent of a reversed list starts no group', (
+    WidgetTester tester,
+  ) async {
+    configureTestView(tester);
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+    final controller = ScrollController(initialScrollOffset: 100);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: ListView.builder(
+                controller: controller,
+                reverse: true,
+                cacheExtent: 250,
+                itemExtent: 200,
+                itemCount: 20,
+                itemBuilder: (BuildContext context, int index) => _buildPlatformView(index + 1),
+              ),
+            ),
+            Positioned(
+              left: 10,
+              top: 20,
+              width: 100,
+              height: 50,
+              child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // The list grows upwards from the bottom and is scrolled by 100: platform
+    // views 1 to 4 are (partially) visible, from the bottom up, and platform
+    // view 5 (at -300 to -100) is laid out in the cache extent but not painted.
+    expect(find.byType(PlatformViewSurface, skipOffstage: false), findsNWidgets(5));
+    expect(
+      tester.getRect(find.byType(PlatformViewSurface, skipOffstage: false).at(3)),
+      const Rect.fromLTWH(0, -100, 800, 200),
+    );
+    expect(
+      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+      equals(
+        Float64List.fromList(<double>[
+          1.0,
+          0.0,
+          2.0,
+          0.0,
+          3.0,
+          0.0,
+          4.0,
+          1.0,
+          10.0,
+          20.0,
+          110.0,
+          70.0,
+        ]),
+      ),
+    );
+  });
+
+  testWidgets('platform view overflowing an unclipped viewport is covered beyond its bounds', (
+    WidgetTester tester,
+  ) async {
+    configureTestView(tester);
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+    final controller = ScrollController(initialScrollOffset: 50);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Stack(
+          children: <Widget>[
+            Positioned(
+              left: 0,
+              top: 100,
+              width: 400,
+              height: 300,
+              child: CustomScrollView(
+                controller: controller,
+                cacheExtent: 0,
+                clipBehavior: Clip.none,
+                slivers: <Widget>[
+                  SliverToBoxAdapter(child: SizedBox(height: 200, child: _buildPlatformView(1))),
+                  const SliverToBoxAdapter(child: SizedBox(height: 1000)),
+                ],
+              ),
+            ),
+            // Above the viewport, but over the part of platform view 1 that
+            // the unclipped viewport paints above its top edge.
+            Positioned(
+              left: 10,
+              top: 55,
+              width: 100,
+              height: 40,
+              child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(tester.getRect(find.byType(PlatformViewSurface)), const Rect.fromLTWH(0, 50, 400, 200));
+    expect(
+      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 55.0, 110.0, 95.0])),
+    );
+  });
+
+  testWidgets(
+    'platform view laid out in the cache extent of a two-dimensional viewport starts no group',
+    (WidgetTester tester) async {
+      configureTestView(tester);
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+      final delegate = TwoDimensionalChildBuilderDelegate(
+        maxXIndex: 0,
+        maxYIndex: 9,
+        builder: (BuildContext context, ChildVicinity vicinity) {
+          return switch (vicinity.yIndex) {
+            1 => _buildPlatformView(1),
+            3 => _buildPlatformView(2),
+            _ => const SizedBox.shrink(),
+          };
+        },
+      );
+      addTearDown(delegate.dispose);
+
+      await tester.pumpWidget(
+        simpleBuilderTest(delegate: delegate, useCacheExtent: true, cacheExtent: 200),
+      );
+
+      // Rows are 200 pixels tall in a 600 pixel viewport: row 1 is visible and
+      // row 3 (at 600 to 800) is laid out in the cache extent but not painted.
+      expect(find.byType(PlatformViewSurface, skipOffstage: false), findsNWidgets(2));
+      expect(
+        tester.getRect(find.byType(PlatformViewSurface, skipOffstage: false).last),
+        const Rect.fromLTWH(0, 600, 200, 200),
+      );
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 0.0])),
+      );
+    },
+  );
 }
