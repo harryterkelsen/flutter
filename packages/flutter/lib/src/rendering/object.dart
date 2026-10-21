@@ -1072,7 +1072,7 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// platform views attached to this pipeline owner.
   ///
   /// Typical implementations forward the regions to
-  /// [FlutterView.updateHitTestRegions].
+  /// `FlutterView.updateHitTestRegions`.
   ///
   /// While a platform view with a non-empty size is attached, this is called on
   /// every
