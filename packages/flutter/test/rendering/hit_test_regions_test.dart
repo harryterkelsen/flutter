@@ -49,6 +49,32 @@ RenderBox _createHitTarget({
   );
 }
 
+/// Paints the children of a [RenderFlow] at [offsets], in [paintOrder].
+///
+/// Children whose index is not in [paintOrder] are not painted at all.
+class _PaintOrderFlowDelegate extends FlowDelegate {
+  const _PaintOrderFlowDelegate({required this.paintOrder, required this.offsets});
+
+  final List<int> paintOrder;
+  final List<Offset> offsets;
+
+  @override
+  BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) => constraints.loosen();
+
+  @override
+  void paintChildren(FlowPaintingContext context) {
+    for (final int index in paintOrder) {
+      context.paintChild(
+        index,
+        transform: Matrix4.translationValues(offsets[index].dx, offsets[index].dy, 0.0),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PaintOrderFlowDelegate oldDelegate) => true;
+}
+
 ViewConfiguration _createViewConfiguration({
   Size size = const Size(800.0, 600.0),
   double devicePixelRatio = 1.0,
@@ -764,6 +790,107 @@ void main() {
     expect(
       binding.rootPipelineOwner.debugLastHitTestRegions,
       equals(Float64List.fromList(<double>[2.0, 0.0])),
+    );
+  });
+
+  test('RenderIndexedStack contributes only its displayed child', () {
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    binding.automaticPointerInterceptorsEnabled = true;
+
+    final PlatformViewRenderBox pv1 = _createPlatformView(1);
+    final indexedStack = RenderIndexedStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        // Index 0: a hit target over platform view 1.
+        _positioned(left: 10, top: 20, width: 100, height: 50, child: _createHitTarget()),
+        // Index 1: platform view 2 with a hit target on top of it.
+        _positioned(
+          left: 0,
+          top: 0,
+          width: 300,
+          height: 300,
+          child: RenderStack(
+            textDirection: TextDirection.ltr,
+            children: <RenderBox>[
+              _positioned(left: 0, top: 0, width: 300, height: 300, child: _createPlatformView(2)),
+              _positioned(
+                left: 50,
+                top: 60,
+                width: 40,
+                height: 30,
+                child: _createHitTarget(width: 40, height: 30),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    final stack = RenderStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        _positioned(left: 0, top: 0, width: 400, height: 400, child: pv1),
+        _positioned(left: 0, top: 0, width: 400, height: 400, child: indexedStack),
+      ],
+    );
+
+    layout(stack, phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+
+    // Index 0 is displayed: the hidden platform view 2 and the hit target over
+    // it are laid out but not painted, so they contribute neither a group nor
+    // a rect.
+    expect(
+      binding.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+    );
+
+    // Index 1 is displayed: the hidden hit target over platform view 1 does not
+    // claim, and platform view 2 starts a group holding the hit target over it.
+    indexedStack.index = 1;
+    pumpFrame(phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+    expect(
+      binding.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 1.0, 50.0, 60.0, 90.0, 90.0])),
+    );
+  });
+
+  test('RenderFlow children are walked in the order the delegate paints them', () {
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    binding.automaticPointerInterceptorsEnabled = true;
+
+    final flow = RenderFlow(
+      delegate: const _PaintOrderFlowDelegate(
+        // Child 2 is painted first (under the platform view), then the
+        // platform view, then child 0 (over the platform view). Child 3 is
+        // never painted.
+        paintOrder: <int>[2, 1, 0],
+        offsets: <Offset>[Offset(10, 20), Offset.zero, Offset(200, 300), Offset(50, 50)],
+      ),
+      children: <RenderBox>[
+        _createHitTarget(),
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 400.0, height: 400.0),
+          child: _createPlatformView(1),
+        ),
+        _createHitTarget(width: 80, height: 40),
+        _createHitTarget(width: 60, height: 30),
+      ],
+    );
+
+    final stack = RenderStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[_positioned(left: 0, top: 0, width: 400, height: 400, child: flow)],
+    );
+
+    layout(stack, phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+
+    // Only child 0, painted after the platform view, claims its rect.
+    expect(
+      binding.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
     );
   });
 }
