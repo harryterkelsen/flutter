@@ -284,11 +284,11 @@ Future<void> testMain() async {
             (_pv1, <ui.Rect>[rectA, rectB]),
           ], dpr),
         );
-        expect(identical(_singleProxy(), proxy), isTrue);
+        expect(_singleProxy(), proxy);
         final List<DomElement> frame2Children = proxy.children.toList();
         expect(frame2Children, hasLength(2));
-        expect(identical(frame2Children[0], child0), isTrue);
-        expect(identical(frame2Children[1], child1), isTrue);
+        expect(frame2Children[0], child0);
+        expect(frame2Children[1], child1);
         _expectProxyRect(child0, rectA);
         _expectProxyRect(child1, rectB);
 
@@ -299,10 +299,10 @@ Future<void> testMain() async {
             (_pv1, <ui.Rect>[_dialogRect]),
           ], dpr),
         );
-        expect(identical(_singleProxy(), proxy), isTrue);
+        expect(_singleProxy(), proxy);
         final List<DomElement> frame3Children = proxy.children.toList();
         expect(frame3Children, hasLength(1));
-        expect(identical(frame3Children.first, child0), isTrue);
+        expect(frame3Children.first, child0);
         _expectProxyRect(child0, _dialogRect);
 
         // Frame 4: grow back to 2 rects; child0 stays and child1 is reused from the pool.
@@ -312,11 +312,11 @@ Future<void> testMain() async {
             (_pv1, <ui.Rect>[_barrierRect, _pv2Rect]),
           ], dpr),
         );
-        expect(identical(_singleProxy(), proxy), isTrue);
+        expect(_singleProxy(), proxy);
         final List<DomElement> frame4Children = proxy.children.toList();
         expect(frame4Children, hasLength(2));
-        expect(identical(frame4Children[0], child0), isTrue);
-        expect(identical(frame4Children[1], child1), isTrue);
+        expect(frame4Children[0], child0);
+        expect(frame4Children[1], child1);
         _expectProxyRect(child0, _barrierRect);
         _expectProxyRect(child1, _pv2Rect);
       });
