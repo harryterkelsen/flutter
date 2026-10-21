@@ -3954,6 +3954,19 @@ class RenderAbsorbPointer extends RenderProxyBox {
   }
 
   @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // While absorbing, every pointer event within this box's bounds is
+    // swallowed, whether or not its child would accept it.
+    if (absorbing) {
+      if (hasSize && !size.isEmpty) {
+        visitor(Offset.zero & size);
+      }
+      return;
+    }
+    super.visitHitTestRegions(visitor);
+  }
+
+  @override
   void describeSemanticsConfiguration(SemanticsConfiguration config) {
     super.describeSemanticsConfiguration(config);
     config.isBlockingUserActions = absorbing;
