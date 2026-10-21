@@ -1446,9 +1446,7 @@ class TestFlutterView implements FlutterView {
   @override
   void updateHitTestRegions(Float64List regions) {
     _lastHitTestRegions = regions;
-    if (kIsWeb || _view.runtimeType != FlutterView) {
-      (_view as dynamic).updateHitTestRegions(regions);
-    }
+    _view.updateHitTestRegions(regions);
   }
 
   /// The hit-test regions most recently reported to this view through
@@ -2296,9 +2294,7 @@ class TestWindow implements SingletonFlutterWindow {
 
   @override
   void updateHitTestRegions(Float64List regions) {
-    if (kIsWeb || _view.runtimeType != FlutterView) {
-      (_view as dynamic).updateHitTestRegions(regions);
-    }
+    _view.updateHitTestRegions(regions);
   }
 
   @Deprecated(

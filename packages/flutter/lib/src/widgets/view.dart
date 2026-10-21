@@ -479,10 +479,7 @@ class _RawViewElement extends RenderTreeRootElement {
   }
 
   void _handleHitTestRegionsUpdate(Float64List regions) {
-    final FlutterView view = (widget as _RawViewInternal).view;
-    if (kIsWeb || view.runtimeType != FlutterView) {
-      (view as dynamic).updateHitTestRegions(regions);
-    }
+    (widget as _RawViewInternal).view.updateHitTestRegions(regions);
   }
 
   @override
