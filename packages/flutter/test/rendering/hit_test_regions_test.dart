@@ -1415,7 +1415,7 @@ void main() {
     );
   });
 
-  test('visitHitTestRegions rects that contain no points claim nothing', () {
+  test('visitHitTestRegions rects claim a region only if they contain points after clipping', () {
     final cases = <({String description, Rect region, List<Rect> expectedRects})>[
       (description: 'zero', region: Rect.zero, expectedRects: <Rect>[]),
       (
