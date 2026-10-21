@@ -168,7 +168,15 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 /// encountered during the walk.
 Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = true}) {
   final groups = <_PlatformViewHitTestGroup>[];
+  final int? totalPlatformViews = root.owner?.attachedPlatformViewCount;
+  var visitedPlatformViews = 0;
   var currentGroupFullyCovered = false;
+
+  bool allPlatformViewsVisited() {
+    return enableEarlyStop &&
+        totalPlatformViews != null &&
+        visitedPlatformViews >= totalPlatformViews;
+  }
 
   bool overlapsAnyPlatformView(Rect rect) {
     if (!rect.isFinite || rect.isEmpty) {
@@ -288,7 +296,12 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   final transformStack = <Matrix4>[Matrix4.identity()];
   Matrix4 currentTransform = transformStack[0];
   Rect? currentHitTestClip;
+  Rect? currentNodeBounds;
+  var claimedOwnBounds = false;
   void claimRegion(Rect localRect) {
+    if (currentNodeBounds != null && _rectContains(localRect, currentNodeBounds!)) {
+      claimedOwnBounds = true;
+    }
     addClaimedRect(localRect, currentTransform, currentHitTestClip);
   }
 
@@ -334,6 +347,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     // A platform view starts a new group. Everything visited after this point
     // paints on top of it.
     if (node is PlatformViewRenderBox) {
+      visitedPlatformViews += 1;
       if (node.hasSize && !node.size.isEmpty) {
         Rect platformViewRect = _toGlobal(Offset.zero & node.size, transform);
         if (clip != null) {
@@ -349,6 +363,16 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       return;
     }
 
+    if (allPlatformViewsVisited() &&
+        (currentGroupFullyCovered ||
+            childIgnoringPointers ||
+            clipMissedAtGroupCount == groups.length)) {
+      return;
+    }
+
+    final bool checksBounds = !childIgnoringPointers && hitTestsWithinBounds(node);
+    var nodeClaimedOwnBounds = false;
+
     // Nothing can cover a platform view until one has been painted, and
     // render objects that ignore pointers never claim a region.
     if (groups.isNotEmpty && !selfIgnoringPointers) {
@@ -359,23 +383,38 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         // answered, without running a full hit test.
         currentTransform = transform;
         currentHitTestClip = hitTestClip;
+        currentNodeBounds = checksBounds ? (Offset.zero & (node as RenderBox).size) : null;
+        claimedOwnBounds = false;
         // ignore: invalid_use_of_protected_member
         node.visitHitTestRegions(claimRegion);
+        nodeClaimedOwnBounds = enableEarlyStop && claimedOwnBounds;
+      }
+      if (allPlatformViewsVisited() && (currentGroupFullyCovered || nodeClaimedOwnBounds)) {
+        return;
       }
     }
 
     // A box that only hit tests within its bounds restricts where its
     // descendants can be hit, even if it does not clip their painting.
-    final bool checksBounds = hitTestsWithinBounds(node);
-    final Rect? descendantsHitTestClip = checksBounds
-        ? intersectClip(hitTestClip, toGlobal(Offset.zero & (node as RenderBox).size, transform))
-        : hitTestClip;
-    var descendantsClipMissedAtGroupCount = clipMissedAtGroupCount;
-    if (checksBounds &&
-        groups.isNotEmpty &&
-        descendantsClipMissedAtGroupCount != groups.length &&
-        !overlapsAnyPlatformView(descendantsHitTestClip!)) {
-      descendantsClipMissedAtGroupCount = groups.length;
+    int? descendantsClipMissedAtGroupCount = nodeClaimedOwnBounds
+        ? groups.length
+        : clipMissedAtGroupCount;
+    final Rect? descendantsHitTestClip;
+    if (checksBounds) {
+      descendantsHitTestClip = intersectClip(
+        hitTestClip,
+        toGlobal(Offset.zero & (node as RenderBox).size, transform),
+      );
+      if (groups.isNotEmpty &&
+          descendantsClipMissedAtGroupCount != groups.length &&
+          !overlapsAnyPlatformView(descendantsHitTestClip)) {
+        descendantsClipMissedAtGroupCount = groups.length;
+      }
+      if (allPlatformViewsVisited() && descendantsClipMissedAtGroupCount == groups.length) {
+        return;
+      }
+    } else {
+      descendantsHitTestClip = hitTestClip;
     }
 
     // Descend into the painted children in paint order, accumulating each
@@ -390,6 +429,9 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   }
 
   visitChild = (RenderObject child) {
+    if (allPlatformViewsVisited() && currentGroupFullyCovered) {
+      return;
+    }
     final node = currentParent;
     final depth = currentDepth;
     final Matrix4 transform = transformStack[depth];

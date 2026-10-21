@@ -1722,6 +1722,11 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// the hit-test region pass.
   int _attachedPlatformViewCount = 0;
 
+  /// The number of [PlatformViewRenderBox]es currently attached to this
+  /// pipeline owner.
+  @internal
+  int get attachedPlatformViewCount => _attachedPlatformViewCount;
+
   /// Whether the most recent payload sent to [onHitTestRegionsUpdate] was
   /// non-empty.
   ///
