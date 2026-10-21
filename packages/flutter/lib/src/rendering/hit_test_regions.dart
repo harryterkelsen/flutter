@@ -145,7 +145,13 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 ///   overlaps at least one platform view painted before it. It is attributed
 ///   to the most recently painted platform view (even if it only overlaps an
 ///   earlier one), because that is the platform view directly beneath it in
-///   paint order.
+///   paint order. Within each group, rectangles contained inside another
+///   rectangle in the same group are deduplicated.
+/// * When [enableEarlyStop] is true (the default), once a claimed rectangle in
+///   the current group covers all earlier platform views, subsequent render
+///   objects skip [RenderObject.visitHitTestRegions] until another platform
+///   view starts a new group (and once all attached platform views have been
+///   visited, covered or clip-missed subtrees are pruned without descending).
 /// * Platform views themselves are leaves of the walk; their children (if any)
 ///   are not visited.
 ///
@@ -305,6 +311,11 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     addClaimedRect(localRect, currentTransform, currentHitTestClip);
   }
 
+  // Per-depth Matrix4 stack and cursor state hoisted outside [visit] so a
+  // single [visitChild] closure and one [Matrix4] per tree depth are reused
+  // across the entire walk without per-node allocations. [visitChild]
+  // snapshots these fields into locals before recursing to `depth + 1` and
+  // restores them afterwards.
   late RenderObject currentParent;
   var currentDepth = 0;
   Rect? currentClip;
@@ -312,13 +323,17 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   var currentIgnoringPointers = false;
   int? currentClipMissedAtGroupCount;
 
-  // Visits [node] and its descendants in paint order (see above). [transform] maps
-  // [node]'s local coordinates to the root's, [clip] is the accumulated paint
-  // clip in root coordinates (or null if unclipped), [hitTestClip] is [clip]
-  // further restricted to the bounds of the ancestors that only hit test
-  // within their bounds, and [ignoringPointers] is true when an ancestor
-  // [RenderIgnorePointer] is ignoring pointer events or an ancestor
-  // [RenderAbsorbPointer] is absorbing them.
+  // Visits [node] at tree [depth] and its descendants in paint order (see
+  // above). [transform] maps [node]'s local coordinates to the root's, [clip]
+  // is the accumulated paint clip in root coordinates (or null if unclipped),
+  // [hitTestClip] is [clip] further restricted to the bounds of the ancestors
+  // that only hit test within their bounds, [ignoringPointers] is true when an
+  // ancestor [RenderIgnorePointer] is ignoring pointer events or an ancestor
+  // [RenderAbsorbPointer] is absorbing them, and [clipMissedAtGroupCount]
+  // records the `groups.length` at which an ancestor's hit-test clip missed
+  // all earlier platform views (or was already covered by the ancestor's own
+  // claimed bounds), which automatically invalidates if a descendant platform
+  // view appends a new group.
   late final void Function(RenderObject child) visitChild;
   void visit(
     RenderObject node,

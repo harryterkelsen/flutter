@@ -1085,8 +1085,8 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// `FlutterView.updateHitTestRegions`.
   ///
   /// While a platform view with a non-empty size is attached, this is called on
-  /// every
-  /// [flushHitTestRegions] with the latest payload (even if it is unchanged).
+  /// [flushHitTestRegions] whenever the computed payload has changed since the
+  /// previous flush.
   /// The payload is a flat list of groups, one per platform view in paint
   /// order, each encoded as the platform view ID, the number of rectangles
   /// `n`, and then `n` rectangles as left, top, right, bottom values in the

@@ -1455,11 +1455,15 @@ void main() {
       );
       view.child = stack;
 
+      void flushFrame() {
+        owner.flushLayout();
+        owner.flushCompositingBits();
+        owner.flushPaint();
+        owner.flushHitTestRegions();
+      }
+
       // Frame 1: initial regions are dispatched once.
-      owner.flushLayout();
-      owner.flushCompositingBits();
-      owner.flushPaint();
-      owner.flushHitTestRegions();
+      flushFrame();
       expect(updates, hasLength(1));
       expect(
         updates.single,
@@ -1467,19 +1471,13 @@ void main() {
       );
 
       // Frame 2: unchanged hit-test regions do not invoke onHitTestRegionsUpdate again.
-      owner.flushLayout();
-      owner.flushCompositingBits();
-      owner.flushPaint();
-      owner.flushHitTestRegions();
+      flushFrame();
       expect(updates, hasLength(1));
 
       // Frame 3: moving the overlay changes the regions and invokes onHitTestRegionsUpdate.
       (overlay.parentData! as StackParentData).left = 30.0;
       stack.markNeedsLayout();
-      owner.flushLayout();
-      owner.flushCompositingBits();
-      owner.flushPaint();
-      owner.flushHitTestRegions();
+      flushFrame();
       expect(updates, hasLength(2));
       expect(
         updates.last,
@@ -1573,6 +1571,13 @@ void main() {
         children: <RenderBox>[
           _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
           _positioned(
+            left: 60,
+            top: 60,
+            width: 30,
+            height: 30,
+            child: _createHitTarget(width: 30, height: 30),
+          ),
+          _positioned(
             left: 0,
             top: 0,
             width: 200,
@@ -1601,6 +1606,13 @@ void main() {
         children: <RenderBox>[
           _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
           _positioned(
+            left: 55,
+            top: 55,
+            width: 25,
+            height: 25,
+            child: _createHitTarget(width: 25, height: 25),
+          ),
+          _positioned(
             left: 0,
             top: 0,
             width: 200,
@@ -1622,79 +1634,9 @@ void main() {
         equals(computeHitTestRegions(twoPvFullCoverStack, enableEarlyStop: false)),
       );
 
-      // Multi-scenario equivalence suite comparing enableEarlyStop: true vs false.
+      // Additional clipped and transformed scenarios comparing enableEarlyStop: true vs false.
       final scenarios = <RenderBox>[
-        // 1. Single PV with partial cover, full cover, and subsequent target.
-        RenderStack(
-          textDirection: TextDirection.ltr,
-          children: <RenderBox>[
-            _positioned(left: 20, top: 20, width: 150, height: 150, child: _createPlatformView(1)),
-            _positioned(
-              left: 40,
-              top: 40,
-              width: 50,
-              height: 50,
-              child: _createHitTarget(width: 50, height: 50),
-            ),
-            _positioned(
-              left: 0,
-              top: 0,
-              width: 300,
-              height: 300,
-              child: _createHitTarget(width: 300, height: 300),
-            ),
-            _positioned(
-              left: 60,
-              top: 60,
-              width: 80,
-              height: 80,
-              child: _createHitTarget(width: 80, height: 80),
-            ),
-          ],
-        ),
-        // 2. Two PVs where a modal barrier covers PV1 and a dialog with PV2 and buttons sits above it.
-        RenderStack(
-          textDirection: TextDirection.ltr,
-          children: <RenderBox>[
-            _positioned(left: 0, top: 0, width: 400, height: 400, child: _createPlatformView(10)),
-            _positioned(
-              left: 20,
-              top: 30,
-              width: 80,
-              height: 40,
-              child: _createHitTarget(width: 80, height: 40),
-            ),
-            _positioned(
-              left: 0,
-              top: 0,
-              width: 800,
-              height: 600,
-              child: _createHitTarget(width: 800, height: 600),
-            ),
-            _positioned(
-              left: 100,
-              top: 100,
-              width: 200,
-              height: 40,
-              child: _createHitTarget(width: 200, height: 40),
-            ),
-            _positioned(
-              left: 100,
-              top: 140,
-              width: 200,
-              height: 200,
-              child: _createPlatformView(20),
-            ),
-            _positioned(
-              left: 120,
-              top: 160,
-              width: 50,
-              height: 30,
-              child: _createHitTarget(width: 50, height: 30),
-            ),
-          ],
-        ),
-        // 3. Clipped subtrees with full and partial cover.
+        // 1. Clipped subtrees with full and partial cover.
         RenderStack(
           textDirection: TextDirection.ltr,
           children: <RenderBox>[
