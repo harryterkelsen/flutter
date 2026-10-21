@@ -157,6 +157,51 @@ void main() {
     );
   });
 
+  testWidgets('delivers hit-test regions to the view of an explicit View widget', (
+    WidgetTester tester,
+  ) async {
+    enablePass(tester);
+
+    Widget buildView({required bool withPlatformView}) {
+      return View(
+        view: tester.view,
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Stack(
+            children: <Widget>[
+              if (withPlatformView)
+                Positioned.fromRect(
+                  rect: const Rect.fromLTWH(0, 0, 400, 400),
+                  child: _platformView(1),
+                ),
+              Positioned.fromRect(
+                rect: const Rect.fromLTWH(10, 20, 100, 50),
+                child: const Listener(behavior: HitTestBehavior.opaque),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // The View widget owns its PipelineOwner instead of using the binding's.
+    await tester.pumpWidget(wrapWithView: false, buildView(withPlatformView: true));
+    expect(
+      tester.view.lastHitTestRegions,
+      equals(Float64List.fromList(<double>[
+        1.0,
+        1.0,
+        10.0 * _devicePixelRatio,
+        20.0 * _devicePixelRatio,
+        110.0 * _devicePixelRatio,
+        70.0 * _devicePixelRatio,
+      ])),
+    );
+
+    await tester.pumpWidget(wrapWithView: false, buildView(withPlatformView: false));
+    expect(tester.view.lastHitTestRegions, equals(Float64List(0)));
+  });
+
   testWidgets('a closing dialog stops claiming as soon as its exit animation starts', (
     WidgetTester tester,
   ) async {
