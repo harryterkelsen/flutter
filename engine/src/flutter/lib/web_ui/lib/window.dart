@@ -27,6 +27,7 @@ abstract class FlutterView {
   DisplayCornerRadii? get displayCornerRadii;
   void render(Scene scene, {Size? size});
   void updateSemantics(SemanticsUpdate update) => platformDispatcher.updateSemantics(update);
+  void updateHitTestRegions(Float64List regions);
 }
 
 abstract class SingletonFlutterWindow extends FlutterView {

@@ -2,10 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
 import 'package:ui/src/engine.dart';
 import 'package:ui/ui.dart' as ui;
+
+/// A `<flt-hit-test-proxy>` element, together with the rects (in physical
+/// pixels) and device pixel ratio it was last built with.
+typedef _HitTestProxyElement = ({DomElement element, List<ui.Rect> rects, double devicePixelRatio});
 
 /// This composites HTML views into the [ui.Scene].
 class PlatformViewEmbedder {
@@ -52,6 +57,17 @@ class PlatformViewEmbedder {
   /// The most recent composition.
   Composition _activeComposition = Composition();
 
+  /// The most recent hit-test regions, as non-empty rects (in physical pixels)
+  /// keyed by the id of the platform view they follow.
+  ///
+  /// See [updateHitTestRegions].
+  Map<int, List<ui.Rect>> _hitTestRegions = const <int, List<ui.Rect>>{};
+
+  /// The `<flt-hit-test-proxy>` elements of the hit-test proxies in the scene,
+  /// keyed by the id of the platform view they follow, together with the rects
+  /// (in physical pixels) and device pixel ratio they were last built with.
+  final Map<int, _HitTestProxyElement> _hitTestProxies = <int, _HitTestProxyElement>{};
+
   /// Returns the most recent composition. Only used in tests.
   Composition get debugActiveComposition => _activeComposition;
 
@@ -91,6 +107,63 @@ class PlatformViewEmbedder {
   /// scene.
   void addPictureToUnoptimizedScene(PictureLayer picture) {
     _context.sceneElements.add(PictureSceneElement(picture));
+  }
+
+  /// Stores the hit-test [regions] reported by the framework for the next
+  /// frame.
+  ///
+  /// The regions are applied when the frame is submitted: a group of hit-test
+  /// proxies is placed right after each platform view in the scene that has a
+  /// non-empty group in [regions]. Groups for platform views that are not in
+  /// the scene are ignored.
+  ///
+  /// See [ui.FlutterView.updateHitTestRegions] for the encoding of [regions].
+  void updateHitTestRegions(Float64List regions) {
+    _hitTestRegions = <int, List<ui.Rect>>{
+      for (final HitTestProxyGroup group in decodeHitTestRegions(regions))
+        if (group.rects.isNotEmpty) group.viewId: group.rects,
+    };
+  }
+
+  /// Inserts a [CompositionHitTestProxy] right after each platform view in
+  /// [composition] that has hit-test regions, and makes sure each one has an
+  /// up-to-date `<flt-hit-test-proxy>` element.
+  void _addHitTestProxies(Composition composition) {
+    if (_hitTestRegions.isEmpty) {
+      return;
+    }
+    final double devicePixelRatio = EngineFlutterDisplay.instance.devicePixelRatio;
+    for (var i = 0; i < composition.entities.length; i++) {
+      final CompositionEntity entity = composition.entities[i];
+      if (entity is! CompositionPlatformView) {
+        continue;
+      }
+      final List<ui.Rect>? rects = _hitTestRegions[entity.viewId];
+      if (rects == null) {
+        continue;
+      }
+      composition.entities.insert(i + 1, CompositionHitTestProxy(entity.viewId, rects));
+      i++;
+      final _HitTestProxyElement? proxy = _hitTestProxies[entity.viewId];
+      if (proxy != null &&
+          proxy.devicePixelRatio == devicePixelRatio &&
+          listEquals(proxy.rects, rects)) {
+        continue;
+      }
+      final DomElement element = proxy?.element ?? createHitTestProxyElement();
+      updateHitTestProxyElement(element, rects, devicePixelRatio);
+      _hitTestProxies[entity.viewId] = (
+        element: element,
+        rects: rects,
+        devicePixelRatio: devicePixelRatio,
+      );
+    }
+  }
+
+  /// Removes the `<flt-hit-test-proxy>` element that follows the platform view
+  /// with id [viewId] from the DOM.
+  void _removeHitTestProxy(int viewId) {
+    _hitTestProxies.remove(viewId)?.element.remove();
   }
 
   /// Prepares to composite [viewId].
@@ -450,6 +523,9 @@ class PlatformViewEmbedder {
   }
 
   void _updateDomForNewComposition(Composition composition) {
+    // Hit-test proxies are added before comparing the compositions, so that a
+    // change in the hit-test proxies alone still updates the DOM.
+    _addHitTestProxies(composition);
     if (composition.equalsForCompositing(_activeComposition)) {
       // The composition has not changed, so no DOM manipulation is needed.
       return;
@@ -494,6 +570,8 @@ class PlatformViewEmbedder {
         );
         rasterizer.releaseOverlay(entity.displayCanvas!);
         entity.displayCanvas = null;
+      } else if (entity is CompositionHitTestProxy) {
+        _removeHitTestProxy(entity.viewId);
       }
     }
 
@@ -585,6 +663,12 @@ class PlatformViewEmbedder {
         (CompositionEntity entity) =>
             entity is CompositionPlatformView && missingViewIds.contains(entity.viewId),
       );
+      // Their hit-test proxies have nothing to protect, so drop them too.
+      composition.entities.removeWhere(
+        (CompositionEntity entity) =>
+            entity is CompositionHitTestProxy && missingViewIds.contains(entity.viewId),
+      );
+      missingViewIds.forEach(_removeHitTestProxy);
       printWarning(
         'Cannot render platform views: ${missingViewIds.join(', ')}. '
         'These views were disposed while they were being composited.',
@@ -598,6 +682,7 @@ class PlatformViewEmbedder {
     return switch (entity) {
       CompositionCanvas() => entity.displayCanvas!.hostElement,
       CompositionPlatformView() => _viewClipChains[entity.viewId]?.root,
+      CompositionHitTestProxy() => _hitTestProxies[entity.viewId]?.element,
     };
   }
 
@@ -659,6 +744,8 @@ class PlatformViewEmbedder {
   /// Disposes the state of this view embedder.
   void dispose() {
     _viewClipChains.keys.toList().forEach(disposeView);
+    _hitTestProxies.keys.toList().forEach(_removeHitTestProxy);
+    _hitTestRegions = const <int, List<ui.Rect>>{};
     _context = EmbedderFrameContext();
     _currentCompositionParams.clear();
     _viewClipChains.clear();
