@@ -955,7 +955,7 @@ typedef RenderObjectVisitor = void Function(RenderObject child);
 /// [RenderObject] accepts pointer events.
 ///
 /// The `localRect` is in the coordinate space of the render object that
-/// reports it, and is not clipped to that render object's bounds nor to any
+/// reports it, and is clipped neither to that render object's bounds nor to any
 /// ancestor's clip.
 ///
 /// Used by [RenderObject.visitHitTestRegions].
@@ -2398,7 +2398,7 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
     visitChildren(visitor);
   }
 
-  /// Calls visitor with each rectangle, in this render object's local
+  /// Calls [visitor] with each rectangle, in this render object's local
   /// coordinate space, in which this render object itself accepts pointer
   /// events.
   ///
@@ -2406,10 +2406,12 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// is painted on top of a platform view (see [PlatformViewRenderBox]) wants
   /// pointer events, so that pointer events there can be routed to Flutter
   /// rather than to the platform view. It is only consulted for render objects
-  /// painted after a platform view, and never for render objects under an
-  /// ignoring [RenderIgnorePointer] or an offstage [RenderOffstage].
+  /// painted after a platform view, and never for an ignoring
+  /// [RenderIgnorePointer] or its descendants, for the descendants of an
+  /// absorbing [RenderAbsorbPointer], or for an offstage [RenderOffstage]
+  /// subtree.
   ///
-  /// The rectangles passed to visitor are unclipped local rectangles: they do
+  /// The rectangles passed to [visitor] are unclipped local rectangles: they do
   /// not need to be clipped to this render object's bounds (they may extend
   /// beyond them, if this render object accepts pointer events there), nor to
   /// any clip applied by an ancestor. The caller maps each rectangle into

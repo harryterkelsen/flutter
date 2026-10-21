@@ -1090,7 +1090,7 @@ void main() {
     );
   });
 
-  test('visitHitTestRegions rects that contain no points claim nothing', () {
+  test('visitHitTestRegions rects claim a region only if they contain points after clipping', () {
     debugEnableHitTestRegionsOnAllPlatforms = true;
     binding.automaticPointerInterceptorsEnabled = true;
 
