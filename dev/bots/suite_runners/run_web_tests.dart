@@ -141,6 +141,10 @@ class WebTestsSuite {
       // This test is only known to work in debug mode.
       () => _runWebE2eTest('scroll_wheel_integration', buildMode: 'debug', useWasm: false),
 
+      // Real clicks over platform views covered by Flutter content, on both renderers.
+      () => _runWebE2eTest('hit_test_proxy_integration', buildMode: 'profile', useWasm: false),
+      () => _runWebE2eTest('hit_test_proxy_integration', buildMode: 'profile', useWasm: true),
+
       // This test doesn't do anything interesting w.r.t. rendering, so we don't run the full build mode x wasm mode matrix.
       // These tests have been extremely flaky, so we are temporarily disabling them until we figure out how to make them more robust.
       () => _runWebE2eTest('text_editing_integration', buildMode: 'debug', useWasm: false),

@@ -111,11 +111,13 @@ void main() {
       ),
     );
 
-    // 1. Flag off -> debugLastHitTestRegions is null.
+    // 1. Flag off -> debugLastHitTestRegions is null and the view never
+    // receives a payload.
     debugEnableHitTestRegionsOnAllPlatforms = true;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
     await tester.pumpWidget(widget);
     expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
+    expect(tester.view.lastHitTestRegions, isNull);
 
     // 2. Flag on, debug override off (when not on web) -> debugLastHitTestRegions is null.
     if (!kIsWeb) {
@@ -174,12 +176,19 @@ void main() {
         RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
         equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
       );
+      // The same payload is delivered to the view that hosts the render tree.
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+      );
 
-      // Remove the platform view -> debugLastHitTestRegions returns to null.
+      // Remove the platform view -> debugLastHitTestRegions returns to null and
+      // the view receives an empty payload that clears its proxies.
       await tester.pumpWidget(
         const Directionality(textDirection: TextDirection.ltr, child: Stack()),
       );
       expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      expect(tester.view.lastHitTestRegions, equals(Float64List(0)));
     },
   );
 
@@ -358,6 +367,9 @@ void main() {
       // PV2's group contains ONLY the close button painted after PV2; no rect painted
       // before PV2 (barrier, home button, or dialog header) lands in PV2's group.
       expect(groups[1].rects, equals(<Rect>[dialogCloseButtonRect]));
+
+      // The view hosting the dialog receives exactly the payload asserted above.
+      expect(tester.view.lastHitTestRegions, equals(payload));
     },
   );
 
@@ -737,10 +749,16 @@ void main() {
         RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
         equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
       );
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+      );
 
       // Toggle off at runtime -> immediately clears debugLastHitTestRegions before next frame.
       RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
       expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      // The view receives the empty clearing payload synchronously, without a frame.
+      expect(tester.view.lastHitTestRegions, equals(Float64List(0)));
     },
   );
 
