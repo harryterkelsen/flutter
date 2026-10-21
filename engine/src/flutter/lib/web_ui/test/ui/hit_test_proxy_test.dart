@@ -122,7 +122,7 @@ Future<void> testMain() async {
         final DomElement dialogProxyRect = _singleProxy().children.toList()[1];
         final ui.Offset client = _toClient(_dialogPoint);
         dialogProxyRect.dispatchEvent(_pointerEvent('pointerdown', client, buttons: 1));
-        domWindow.dispatchEvent(_pointerEvent('pointerup', client, buttons: 0));
+        dialogProxyRect.dispatchEvent(_pointerEvent('pointerup', client, buttons: 0));
 
         final ui.PointerData down = packets
             .expand((ui.PointerDataPacket packet) => packet.data)
