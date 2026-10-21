@@ -356,6 +356,49 @@ Future<void> testMain() async {
         records.addAll(observer.takeRecords());
         expect(records.where((_DomMutationRecord record) => record.type == 'childList'), isEmpty);
       });
+
+      test('reuses pooled <flt-hit-test-proxy> and child <div> elements across view removal and new view proxy creation', () async {
+        // Frame 1: render PV1 with 2 rects and capture its proxy and child <div> elements.
+        await renderDialogOverPlatformView();
+        final DomElement pv1Proxy = _singleProxy();
+        final List<DomElement> pv1Children = pv1Proxy.children.toList();
+        expect(pv1Children, hasLength(2));
+
+        // Frame 2: remove PV1 from the scene and clear regions so PV1's proxy and
+        // its 2 child <div> elements are released into the pools.
+        final ui.Rect pv2Physical = _scale(_pv2Rect, dpr);
+        ui.Scene buildPv2OnlyScene() {
+          final sb = ui.SceneBuilder();
+          sb.pushOffset(0, 0);
+          sb.addPlatformView(
+            _pv2,
+            offset: pv2Physical.topLeft,
+            width: pv2Physical.width,
+            height: pv2Physical.height,
+          );
+          sb.pop();
+          return sb.build();
+        }
+
+        await _renderWithHitTestRegions(buildPv2OnlyScene(), Float64List(0));
+        expect(_proxies(), isEmpty);
+
+        // Frame 3: render PV2 with 1 rect; the pooled <flt-hit-test-proxy> from PV1
+        // is reused for PV2 with only 1 pooled child <div> attached (no stale rects).
+        await _renderWithHitTestRegions(
+          buildPv2OnlyScene(),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv2, <ui.Rect>[_pv2Rect]),
+          ], dpr),
+        );
+        expect(_sceneChildren(), <String>['pv-$_pv2', 'proxy']);
+        final DomElement pv2Proxy = _singleProxy();
+        expect(pv2Proxy, pv1Proxy);
+        final List<DomElement> pv2Children = pv2Proxy.children.toList();
+        expect(pv2Children, hasLength(1));
+        expect(pv2Children.single, isIn(pv1Children));
+        _expectProxyRect(pv2Children.single, _pv2Rect);
+      });
     });
   }
 }
