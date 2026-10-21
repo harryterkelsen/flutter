@@ -1777,6 +1777,21 @@ base class PipelineOwner with DiagnosticableTreeMixin {
     return null;
   }
 
+  static bool _float64ListEquals(Float64List? a, Float64List? b) {
+    if (identical(a, b)) {
+      return true;
+    }
+    if (a == null || b == null || a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// Computes the hit-test regions that overlap any attached platform views
   /// and dispatches the encoded payload to [onHitTestRegionsUpdate].
   ///
@@ -1797,10 +1812,15 @@ base class PipelineOwner with DiagnosticableTreeMixin {
         }
       }
     }
-    _lastHitTestRegions = regions;
+    final bool unchanged = _float64ListEquals(regions, _lastHitTestRegions);
+    if (!unchanged) {
+      _lastHitTestRegions = regions;
+    }
     if (regions != null) {
       _sentNonEmptyHitTestRegions = true;
-      onHitTestRegionsUpdate?.call(regions);
+      if (!unchanged) {
+        onHitTestRegionsUpdate?.call(regions);
+      }
     } else if (_sentNonEmptyHitTestRegions) {
       // Tell the engine once to drop the regions it received earlier.
       _sentNonEmptyHitTestRegions = false;

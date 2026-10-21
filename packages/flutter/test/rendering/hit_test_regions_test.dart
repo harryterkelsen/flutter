@@ -443,7 +443,7 @@ void main() {
       () {
         // Sent whole even though it overhangs the platform view; the engine may
         // clip it.
-        const overhangingClaim = Rect.fromLTWH(0, 0, 300, 300);
+        const overhangingClaim = Rect.fromLTWH(0, 0, 130, 130);
         final Float64List? regions = regionsFor(
           _stack(<RenderBox>[
             _at(const Rect.fromLTWH(100, 100, 50, 50), _platformView(1)),
@@ -524,10 +524,12 @@ void main() {
           _at(onlyOverPv1, _hitTarget()),
         ]),
       );
+      // PV1 group receives the barrier rect [0, 0, 800, 600], which
+      // subsumes buttonOverPv1 and dialogHeader.
       expect(
         regions,
         _payload(<(int, List<Rect>)>[
-          (1, <Rect>[buttonOverPv1, barrier, dialogHeader]),
+          (1, <Rect>[barrier]),
           (2, <Rect>[buttonOverPv2, onlyOverPv1]),
         ]),
       );
