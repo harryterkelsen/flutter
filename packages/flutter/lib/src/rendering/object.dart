@@ -12,6 +12,7 @@
 /// @docImport 'platform_view.dart';
 /// @docImport 'proxy_box.dart';
 /// @docImport 'sliver.dart';
+/// @docImport 'stack.dart';
 /// @docImport 'view.dart';
 /// @docImport 'viewport.dart';
 library;
@@ -25,9 +26,9 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
 
+import '_hit_test_regions.dart';
 import 'binding.dart';
 import 'debug.dart';
-import 'hit_test_regions.dart';
 import 'layer.dart';
 
 export 'package:flutter/foundation.dart'
@@ -2355,6 +2356,34 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   ///
   /// Override in subclasses with children and call the visitor for each child.
   void visitChildren(RenderObjectVisitor visitor) {}
+
+  /// Calls visitor for each immediate child of this render object that is
+  /// painted, in the order in which [paint] paints them.
+  ///
+  /// The first child visited is painted first (and so is at the bottom), and
+  /// the last child visited is painted last (and so is on top). Children that
+  /// [paint] does not paint, for example the hidden children of an
+  /// [RenderIndexedStack], the offstage entries of an [Overlay], or children
+  /// that are laid out but scrolled out of view, must be skipped.
+  ///
+  /// This is used to find out which render objects paint on top of platform
+  /// views (see [PlatformViewRenderBox]), so that pointer events over them can
+  /// be routed to Flutter rather than to the platform view.
+  ///
+  /// The default implementation calls [visitChildren], which is correct for
+  /// render objects that paint all of their children in child order. Render
+  /// objects whose [paint] order differs from their child order, or that do not
+  /// paint all of their children, should override this method to match their
+  /// [paint] implementation.
+  ///
+  /// See also:
+  ///
+  ///  * [visitChildrenForSemantics], which similarly visits children in paint
+  ///    order, but skips the children that are not semantically relevant
+  ///    instead.
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    visitChildren(visitor);
+  }
 
   /// The object responsible for creating this render object.
   ///
