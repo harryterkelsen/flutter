@@ -57,6 +57,10 @@ class PlatformViewEmbedder {
   /// The most recent composition.
   Composition _activeComposition = Composition();
 
+  /// The most recent raw hit-test regions payload received by
+  /// [updateHitTestRegions].
+  Float64List? _lastHitTestRegionsPayload;
+
   /// The most recent hit-test regions, as non-empty rects (in physical pixels)
   /// keyed by the id of the platform view they follow.
   ///
@@ -67,6 +71,21 @@ class PlatformViewEmbedder {
   /// keyed by the id of the platform view they follow, together with the rects
   /// (in physical pixels) and device pixel ratio they were last built with.
   final Map<int, _HitTestProxyElement> _hitTestProxies = <int, _HitTestProxyElement>{};
+
+  static bool _float64ListEquals(Float64List? a, Float64List? b) {
+    if (identical(a, b)) {
+      return true;
+    }
+    if (a == null || b == null || a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   /// Returns the most recent composition. Only used in tests.
   Composition get debugActiveComposition => _activeComposition;
@@ -121,6 +140,10 @@ class PlatformViewEmbedder {
   ///
   /// See [ui.FlutterView.updateHitTestRegions] for the encoding of [regions].
   void updateHitTestRegions(Float64List regions) {
+    if (_float64ListEquals(_lastHitTestRegionsPayload, regions)) {
+      return;
+    }
+    _lastHitTestRegionsPayload = regions;
     _hitTestRegions = <int, List<ui.Rect>>{
       for (final HitTestProxyGroup group in decodeHitTestRegions(regions))
         if (group.rects.isNotEmpty) group.viewId: group.rects,
@@ -149,7 +172,7 @@ class PlatformViewEmbedder {
       final _HitTestProxyElement? proxy = _hitTestProxies[entity.viewId];
       if (proxy != null &&
           proxy.devicePixelRatio == devicePixelRatio &&
-          listEquals(proxy.rects, rects)) {
+          (identical(proxy.rects, rects) || listEquals(proxy.rects, rects))) {
         continue;
       }
       final DomElement element = proxy?.element ?? createHitTestProxyElement();
@@ -165,7 +188,11 @@ class PlatformViewEmbedder {
   /// Removes the `<flt-hit-test-proxy>` element that follows the platform view
   /// with id [viewId] from the DOM.
   void _removeHitTestProxy(int viewId) {
-    _hitTestProxies.remove(viewId)?.element.remove();
+    final DomElement? element = _hitTestProxies.remove(viewId)?.element;
+    if (element != null) {
+      element.remove();
+      releaseHitTestProxyElement(element);
+    }
   }
 
   /// Prepares to composite [viewId].
@@ -746,7 +773,9 @@ class PlatformViewEmbedder {
   void dispose() {
     _viewClipChains.keys.toList().forEach(disposeView);
     _hitTestProxies.keys.toList().forEach(_removeHitTestProxy);
+    clearHitTestProxyPool();
     _hitTestRegions = const <int, List<ui.Rect>>{};
+    _lastHitTestRegionsPayload = null;
     _context = EmbedderFrameContext();
     _currentCompositionParams.clear();
     _viewClipChains.clear();
