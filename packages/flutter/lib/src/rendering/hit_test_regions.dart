@@ -127,6 +127,11 @@ Float64List? computeHitTestRegions(RenderObject root) {
   // a hit-test region if it covers a platform view that has already been
   // painted.
   void addClaimedRect(Rect localRect, Matrix4 transform, Rect? clip) {
+    // An empty rect (including an inverted one) contains no points, but its
+    // transformed bounding box could be non-empty, so reject it up front.
+    if (localRect.isEmpty) {
+      return;
+    }
     // Map the local rect into the root coordinate space and clip it to what
     // can actually be hit.
     Rect claimedRect = MatrixUtils.transformRect(transform, localRect);

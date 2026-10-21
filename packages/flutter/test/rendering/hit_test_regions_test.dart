@@ -108,6 +108,19 @@ class _RegionHitTestBox extends RenderBox {
   }
 }
 
+/// A sliver that reports [regions] (in its local coordinates) as its
+/// hit-test regions.
+class _RegionSliver extends RenderSliverToBoxAdapter {
+  _RegionSliver(this.regions, {super.child});
+
+  final List<Rect> regions;
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    regions.forEach(visitor);
+  }
+}
+
 ViewConfiguration _createViewConfiguration({
   Size size = const Size(800.0, 600.0),
   double devicePixelRatio = 1.0,
@@ -1074,6 +1087,239 @@ void main() {
           150.0,
         ]),
       ),
+    );
+  });
+
+  test('visitHitTestRegions rects that contain no points claim nothing', () {
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    binding.automaticPointerInterceptorsEnabled = true;
+
+    final cases = <({String description, Rect region, List<double> payload})>[
+      (description: 'zero', region: Rect.zero, payload: <double>[1.0, 0.0]),
+      (
+        description: 'zero width',
+        region: const Rect.fromLTRB(10, 10, 10, 40),
+        payload: <double>[1.0, 0.0],
+      ),
+      (
+        description: 'inverted',
+        region: const Rect.fromLTRB(40, 40, 10, 10),
+        payload: <double>[1.0, 0.0],
+      ),
+      (
+        description: 'inverted horizontally',
+        region: const Rect.fromLTRB(40, 10, 10, 40),
+        payload: <double>[1.0, 0.0],
+      ),
+      // Rect.largest conventionally means "everywhere"; it is clipped to the
+      // ancestor clip at (50, 50, 150, 150).
+      (
+        description: 'largest',
+        region: Rect.largest,
+        payload: <double>[1.0, 1.0, 50.0, 50.0, 150.0, 150.0],
+      ),
+    ];
+
+    for (final c in cases) {
+      final stack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 0, top: 0, width: 400, height: 400, child: _createPlatformView(1)),
+          _positioned(
+            left: 50,
+            top: 50,
+            width: 100,
+            height: 100,
+            child: RenderClipRect(
+              child: RenderTransform(
+                transform: Matrix4.diagonal3Values(2.0, 2.0, 1.0),
+                child: _RegionHitTestBox(<Rect>[c.region]),
+              ),
+            ),
+          ),
+        ],
+      );
+
+      layout(stack, phase: EnginePhase.composite);
+      binding.pumpCompleteFrame();
+
+      expect(
+        binding.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(c.payload)),
+        reason: c.description,
+      );
+    }
+  });
+
+  test('ancestors that hit test within their bounds restrict all descendants, in their own transformed space', () {
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    binding.automaticPointerInterceptorsEnabled = true;
+
+    // An unclipped 50x50 stack scaled by 2, so it hit tests within
+    // (0, 0, 100, 100). Its child stack at (25, 25) overflows it, and that
+    // child's own child fills it, so it lies within its parent but overflows
+    // its grandparent: it paints at (50, 50, 150, 150) but can only be hit at
+    // (50, 50, 100, 100).
+    final stack = RenderStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        _positioned(left: 0, top: 0, width: 400, height: 400, child: _createPlatformView(1)),
+        _positioned(
+          left: 0,
+          top: 0,
+          width: 50,
+          height: 50,
+          child: RenderTransform(
+            transform: Matrix4.diagonal3Values(2.0, 2.0, 1.0),
+            child: RenderStack(
+              textDirection: TextDirection.ltr,
+              clipBehavior: Clip.none,
+              children: <RenderBox>[
+                _positioned(
+                  left: 25,
+                  top: 25,
+                  width: 50,
+                  height: 50,
+                  child: RenderStack(
+                    textDirection: TextDirection.ltr,
+                    children: <RenderBox>[
+                      _positioned(
+                        left: 0,
+                        top: 0,
+                        width: 50,
+                        height: 50,
+                        child: _createHitTarget(width: 50, height: 50),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+
+    layout(stack, phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+
+    expect(
+      binding.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 1.0, 50.0, 50.0, 100.0, 100.0])),
+    );
+  });
+
+  test(
+    'children painted outside a fractional translation or a follower claim where they are painted',
+    () {
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      binding.automaticPointerInterceptorsEnabled = true;
+
+      final link = LayerLink();
+      final stack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 0, top: 0, width: 400, height: 400, child: _createPlatformView(1)),
+          // Laid out at (100, 0, 150, 50), but paints its child at
+          // (200, 50, 250, 100), where RenderFractionalTranslation.hitTest
+          // forwards hits without checking its own bounds.
+          _positioned(
+            left: 100,
+            top: 0,
+            width: 50,
+            height: 50,
+            child: RenderFractionalTranslation(
+              translation: const Offset(2.0, 1.0),
+              child: _createHitTarget(width: 50, height: 50),
+            ),
+          ),
+          // A leader at (300, 200) that claims nothing itself.
+          _positioned(
+            left: 300,
+            top: 200,
+            width: 50,
+            height: 50,
+            child: RenderLeaderLayer(link: link),
+          ),
+          // Laid out at (100, 300, 150, 350), but paints its child at the
+          // leader's position offset by (10, 20), that is at (310, 220, 360, 270),
+          // where RenderFollowerLayer.hitTest forwards hits without checking its
+          // own bounds.
+          _positioned(
+            left: 100,
+            top: 300,
+            width: 50,
+            height: 50,
+            child: RenderFollowerLayer(
+              link: link,
+              showWhenUnlinked: false,
+              offset: const Offset(10.0, 20.0),
+              child: _createHitTarget(width: 50, height: 50),
+            ),
+          ),
+        ],
+      );
+
+      layout(stack, phase: EnginePhase.composite);
+      binding.pumpCompleteFrame();
+
+      expect(
+        binding.rootPipelineOwner.debugLastHitTestRegions,
+        equals(
+          Float64List.fromList(<double>[
+            1.0,
+            2.0,
+            200.0,
+            50.0,
+            250.0,
+            100.0,
+            310.0,
+            220.0,
+            360.0,
+            270.0,
+          ]),
+        ),
+      );
+    },
+  );
+
+  test('visitHitTestRegions overrides on slivers are mapped through the viewport', () {
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    binding.automaticPointerInterceptorsEnabled = true;
+
+    // Scrolled by 30, the second sliver starts at y = 100 - 30 = 70. Neither
+    // sliver's child accepts pointer events.
+    final viewport = RenderViewport(
+      crossAxisDirection: AxisDirection.right,
+      offset: ViewportOffset.fixed(30.0),
+      children: <RenderSliver>[
+        RenderSliverToBoxAdapter(
+          child: RenderConstrainedBox(
+            additionalConstraints: const BoxConstraints.tightFor(height: 100),
+          ),
+        ),
+        _RegionSliver(
+          <Rect>[const Rect.fromLTRB(10, 5, 60, 25)],
+          child: RenderConstrainedBox(
+            additionalConstraints: const BoxConstraints.tightFor(height: 100),
+          ),
+        ),
+      ],
+    );
+    final stack = RenderStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        _positioned(left: 0, top: 0, width: 400, height: 400, child: _createPlatformView(1)),
+        _positioned(left: 0, top: 0, width: 400, height: 400, child: viewport),
+      ],
+    );
+
+    layout(stack, phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+
+    expect(
+      binding.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 75.0, 60.0, 95.0])),
     );
   });
 }
