@@ -63,6 +63,16 @@ Rect _boundingRect(List<Rect> rects) {
 
 bool _contains(Rect outer, Rect inner) => outer.intersect(inner) == inner;
 
+/// [rects] is non-empty, each rect lies within [expected], and together they
+/// span exactly [expected].
+void _expectRectsSpan(List<Rect> rects, Rect expected) {
+  expect(rects, isNotEmpty);
+  for (final rect in rects) {
+    expect(_contains(expected, rect), isTrue, reason: '$rect lies outside $expected');
+  }
+  expect(_boundingRect(rects), expected);
+}
+
 /// The single platform view group contains no rects.
 void _expectNoRegions(WidgetTester tester, List<_HitTestRegionGroup> groups) {
   expect(groups, hasLength(1));
@@ -91,12 +101,7 @@ void Function(WidgetTester, List<_HitTestRegionGroup>) _expectRegionsSpanning(Fi
     final Rect expected = tester.getRect(finder);
     expect(groups, hasLength(1));
     expect(groups.single.viewId, 1);
-    final List<Rect> rects = groups.single.rects;
-    expect(rects, isNotEmpty);
-    for (final rect in rects) {
-      expect(_contains(expected, rect), isTrue, reason: '$rect lies outside $expected');
-    }
-    expect(_boundingRect(rects), expected);
+    _expectRectsSpan(groups.single.rects, expected);
   };
 }
 
@@ -374,12 +379,7 @@ final List<_MaterialScenario> _scenarios = <_MaterialScenario>[
         expect(group.rects, isEmpty, reason: 'platform view ${group.viewId}');
       }
       final Rect fabRect = tester.getRect(find.byType(FloatingActionButton));
-      final List<Rect> fabRects = groups.last.rects;
-      expect(fabRects, isNotEmpty);
-      for (final rect in fabRects) {
-        expect(_contains(fabRect, rect), isTrue, reason: '$rect lies outside $fabRect');
-      }
-      expect(_boundingRect(fabRects), fabRect);
+      _expectRectsSpan(groups.last.rects, fabRect);
     },
   ),
 ];
@@ -456,12 +456,7 @@ void main() {
     for (final _HitTestRegionGroup group in groups.take(3)) {
       expect(group.rects, isEmpty, reason: 'platform view ${group.viewId}');
     }
-    final List<Rect> appBarRects = groups.last.rects;
-    expect(appBarRects, isNotEmpty);
-    for (final rect in appBarRects) {
-      expect(_contains(appBarRect, rect), isTrue, reason: '$rect lies outside $appBarRect');
-    }
-    expect(_boundingRect(appBarRects), appBarRect);
+    _expectRectsSpan(groups.last.rects, appBarRect);
   });
 
   testWidgets('does not compute hit-test regions for a Material app without platform views', (
