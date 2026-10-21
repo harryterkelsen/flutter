@@ -424,6 +424,25 @@ class RenderFlow extends RenderBox
   }
 
   @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    // Visit the children in the order the delegate painted them during the
+    // last paint, skipping the ones it did not paint. Like [hitTestChildren],
+    // this includes children painted with an opacity of zero, since they can
+    // still be hit.
+    final List<RenderBox> children = getChildrenAsList();
+    for (final int childIndex in _lastPaintOrder) {
+      if (childIndex >= children.length) {
+        continue;
+      }
+      final RenderBox child = children[childIndex];
+      final childParentData = child.parentData! as FlowParentData;
+      if (childParentData._transform != null) {
+        visitor(child);
+      }
+    }
+  }
+
+  @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
     final List<RenderBox> children = getChildrenAsList();
     for (int i = _lastPaintOrder.length - 1; i >= 0; --i) {
