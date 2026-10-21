@@ -154,6 +154,12 @@ class EngineFlutterView implements ui.FlutterView {
     semantics.updateSemantics(update);
   }
 
+  @override
+  void updateHitTestRegions(Float64List regions) {
+    assert(!isDisposed, 'Trying to update hit-test regions on a disposed EngineFlutterView.');
+    renderer.rasterizers[viewId]?.viewEmbedder.updateHitTestRegions(regions);
+  }
+
   /// Sets the locale for this view.
   ///
   /// This method is typically called by the Flutter framework after it has

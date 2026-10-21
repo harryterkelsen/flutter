@@ -19,10 +19,12 @@ bool debugOverlayOptimizationBounds = false;
 /// A [Composition] is a concrete description of how a Flutter scene will be
 /// rendered in a web browser.
 ///
-/// A [Composition] is a sequence containing two types of entities:
-///   * Canvases: which contain rasterized Pictures, and
+/// A [Composition] is a sequence containing these types of entities:
+///   * Canvases: which contain rasterized Pictures,
 ///   * Platform views: being HTML content that is to be composited along with
-///     the Flutter content.
+///     the Flutter content, and
+///   * Hit-test proxies: which stop pointer events on Flutter content painted
+///     over a platform view from reaching the platform view.
 class Composition {
   final List<CompositionEntity> entities = <CompositionEntity>[];
 
@@ -50,7 +52,8 @@ class Composition {
   String toString() => entities.toString();
 }
 
-/// An element of a [Composition]. Either a canvas or a platform view.
+/// An element of a [Composition]. Either a canvas, a platform view, or a group
+/// of hit-test proxies.
 sealed class CompositionEntity {
   /// Returns [true] if this entity is equal to [other] for use in a
   /// composition.
@@ -116,6 +119,36 @@ class CompositionPlatformView extends CompositionEntity {
   /// The bounds that were computed for this platform view when creating the
   /// optimized composition. This is only set in debug mode.
   ui.Rect? debugComputedBounds;
+}
+
+/// A group of hit-test proxies to be composited right after the platform view
+/// with id [viewId].
+///
+/// Hit-test proxies are transparent elements that cover the Flutter content
+/// painted over a platform view, so that pointer events on that content reach
+/// Flutter instead of the platform view below it.
+final class CompositionHitTestProxy extends CompositionEntity {
+  CompositionHitTestProxy(this.viewId, this.rects);
+
+  /// The id of the platform view that this group of proxies follows.
+  final int viewId;
+
+  /// The rects covered by the proxies, in physical pixels.
+  final List<ui.Rect> rects;
+
+  /// Hit-test proxies are equal if they follow the same platform view.
+  ///
+  /// The [rects] are ignored because they don't affect the position of the
+  /// proxies' element in the DOM.
+  @override
+  bool equalsForCompositing(CompositionEntity other) {
+    return other is CompositionHitTestProxy && other.viewId == viewId;
+  }
+
+  @override
+  String toString() {
+    return '$CompositionHitTestProxy($viewId, ${rects.length} rects)';
+  }
 }
 
 // Computes the bounds of the platform view from its associated parameters.
