@@ -8,6 +8,7 @@
 /// @docImport 'package:flutter/widgets.dart' as widgets;
 ///
 /// @docImport 'box.dart';
+/// @docImport 'flow.dart';
 /// @docImport 'paragraph.dart';
 /// @docImport 'platform_view.dart';
 /// @docImport 'proxy_box.dart';
