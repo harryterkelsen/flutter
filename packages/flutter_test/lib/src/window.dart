@@ -1460,6 +1460,20 @@ class TestFlutterView implements FlutterView {
     _view.updateSemantics(update);
   }
 
+  /// Forwards [regions] to the [FlutterView] backing this [TestFlutterView]
+  /// and records them in [lastHitTestRegions].
+  @override
+  void updateHitTestRegions(Float64List regions) {
+    _lastHitTestRegions = regions;
+    _view.updateHitTestRegions(regions);
+  }
+
+  /// The hit-test regions most recently reported to this view through
+  /// [updateHitTestRegions], or null if none were reported since the last
+  /// [reset].
+  Float64List? get lastHitTestRegions => _lastHitTestRegions;
+  Float64List? _lastHitTestRegions;
+
   /// Resets all test values to the defaults for this view.
   ///
   /// See also:
@@ -1482,6 +1496,7 @@ class TestFlutterView implements FlutterView {
     resetViewInsets();
     resetViewPadding();
     resetGestureSettings();
+    _lastHitTestRegions = null;
   }
 
   /// This gives us some grace time when the dart:ui side adds something to
@@ -2294,6 +2309,11 @@ class TestWindow implements SingletonFlutterWindow {
   @override
   void updateSemantics(SemanticsUpdate update) {
     _view.updateSemantics(update);
+  }
+
+  @override
+  void updateHitTestRegions(Float64List regions) {
+    _view.updateHitTestRegions(regions);
   }
 
   @Deprecated(

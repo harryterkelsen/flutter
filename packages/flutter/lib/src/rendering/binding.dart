@@ -271,6 +271,9 @@ mixin RendererBinding
     onSemanticsOwnerDisposed: () {
       (pipelineOwner.rootNode as RenderView?)?.clearSemantics();
     },
+    onHitTestRegionsUpdate: (Float64List regions) {
+      (pipelineOwner.rootNode as RenderView?)?.flutterView.updateHitTestRegions(regions);
+    },
   );
 
   /// Deprecated. Will be removed in a future version of Flutter.
