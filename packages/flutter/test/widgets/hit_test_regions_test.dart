@@ -7,6 +7,8 @@
 // geometry, claim rules and bookkeeping are covered in
 // test/rendering/hit_test_regions_test.dart.
 
+import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
@@ -852,4 +854,270 @@ void main() {
       );
     }
   });
+  testWidgets(
+    'multi-view ViewCollection delivers separate payloads per view, updates per-view DPR, moves platform view between views, and clears payload on view removal',
+    (WidgetTester tester) async {
+      configureTestView(tester);
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+      final secondView = _TestFlutterView(tester.view);
+
+      Widget buildView1({bool includePv2 = false}) {
+        return View(
+          view: tester.view,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Stack(
+              children: <Widget>[
+                Positioned(left: 0, top: 0, width: 200, height: 200, child: _buildPlatformView(1)),
+                Positioned(
+                  left: 10,
+                  top: 20,
+                  width: 50,
+                  height: 60,
+                  child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+                ),
+                if (includePv2) ...<Widget>[
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    width: 200,
+                    height: 200,
+                    child: _buildPlatformView(2),
+                  ),
+                  Positioned(
+                    left: 30,
+                    top: 40,
+                    width: 70,
+                    height: 80,
+                    child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }
+
+      Widget buildView2({required bool withPlatformView}) {
+        return View(
+          view: secondView,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Stack(
+              children: <Widget>[
+                if (withPlatformView)
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    width: 200,
+                    height: 200,
+                    child: _buildPlatformView(2),
+                  ),
+                Positioned(
+                  left: 30,
+                  top: 40,
+                  width: 70,
+                  height: 80,
+                  child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+
+      // 1. Initially only view1 has a platform view; view2 has no platform view.
+      // view1 payload is delivered to tester.view; secondView payload is null.
+      await tester.pumpWidget(
+        wrapWithView: false,
+        ViewCollection(views: <Widget>[buildView1(), buildView2(withPlatformView: false)]),
+      );
+
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 60.0, 80.0])),
+      );
+      expect(secondView.lastHitTestRegions, isNull);
+
+      // 2. Add platform view 2 to view 2. Both views receive separate payloads.
+      await tester.pumpWidget(
+        wrapWithView: false,
+        ViewCollection(views: <Widget>[buildView1(), buildView2(withPlatformView: true)]),
+      );
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 60.0, 80.0])),
+      );
+      expect(
+        secondView.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[2.0, 1.0, 30.0, 40.0, 100.0, 120.0])),
+      );
+
+      // Update DPR on secondView only -> secondView's payload coordinates scale by DPR 2.0.
+      secondView.devicePixelRatio = 2.0;
+      await tester.pumpWidget(
+        wrapWithView: false,
+        ViewCollection(views: <Widget>[buildView1(), buildView2(withPlatformView: true)]),
+      );
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 60.0, 80.0])),
+      );
+      expect(
+        secondView.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[2.0, 1.0, 60.0, 80.0, 200.0, 240.0])),
+      );
+
+      // 3. Move platform view 2 from secondView to tester.view.
+      // secondView payload becomes empty and tester.view has both groups 1 and 2.
+      secondView.devicePixelRatio = 1.0;
+      await tester.pumpWidget(
+        wrapWithView: false,
+        ViewCollection(
+          views: <Widget>[buildView1(includePv2: true), buildView2(withPlatformView: false)],
+        ),
+      );
+      expect(secondView.lastHitTestRegions, equals(Float64List(0)));
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(
+          Float64List.fromList(<double>[
+            1.0,
+            1.0,
+            10.0,
+            20.0,
+            60.0,
+            80.0,
+            2.0,
+            1.0,
+            30.0,
+            40.0,
+            100.0,
+            120.0,
+          ]),
+        ),
+      );
+
+      // 4. Re-pump with platform view 2 back in secondView, then remove secondView's
+      // View widget from ViewCollection -> secondView's payload is cleared to empty.
+      await tester.pumpWidget(
+        wrapWithView: false,
+        ViewCollection(views: <Widget>[buildView1(), buildView2(withPlatformView: true)]),
+      );
+      expect(
+        secondView.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[2.0, 1.0, 30.0, 40.0, 100.0, 120.0])),
+      );
+
+      await tester.pumpWidget(wrapWithView: false, ViewCollection(views: <Widget>[buildView1()]));
+      expect(secondView.lastHitTestRegions, equals(Float64List(0)));
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 60.0, 80.0])),
+      );
+    },
+  );
+
+  testWidgets(
+    'ViewAnchor child view delivers hit-test regions, exposes debugLastHitTestRegions through rootPipelineOwner, and clears on removal',
+    (WidgetTester tester) async {
+      configureTestView(tester);
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+      final secondView = _TestFlutterView(tester.view);
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: ViewAnchor(
+            view: View(
+              view: secondView,
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: Stack(
+                  children: <Widget>[
+                    Positioned(
+                      left: 0,
+                      top: 0,
+                      width: 200,
+                      height: 200,
+                      child: _buildPlatformView(2),
+                    ),
+                    Positioned(
+                      left: 30,
+                      top: 40,
+                      width: 70,
+                      height: 80,
+                      child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            child: const SizedBox(width: 100, height: 100),
+          ),
+        ),
+      );
+
+      final expectedPayload = Float64List.fromList(<double>[2.0, 1.0, 30.0, 40.0, 100.0, 120.0]);
+      expect(secondView.lastHitTestRegions, equals(expectedPayload));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(expectedPayload),
+      );
+
+      // Remove the ViewAnchor's child view -> secondView's payload is cleared to empty
+      // and rootPipelineOwner.debugLastHitTestRegions becomes null.
+      await tester.pumpWidget(
+        const Directionality(
+          textDirection: TextDirection.ltr,
+          child: ViewAnchor(child: SizedBox(width: 100, height: 100)),
+        ),
+      );
+      expect(secondView.lastHitTestRegions, equals(Float64List(0)));
+      expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
+    },
+  );
+}
+
+class _TestFlutterView extends TestFlutterView {
+  _TestFlutterView(FlutterView view)
+    : super(
+        view: view,
+        platformDispatcher: view.platformDispatcher as TestPlatformDispatcher,
+        display: view.display as TestDisplay,
+      );
+
+  @override
+  int get viewId => 100;
+
+  double _devicePixelRatio = 1.0;
+
+  @override
+  double get devicePixelRatio => _devicePixelRatio;
+
+  @override
+  set devicePixelRatio(double value) {
+    _devicePixelRatio = value;
+    platformDispatcher.onMetricsChanged?.call();
+  }
+
+  Float64List? _lastHitTestRegions;
+
+  @override
+  Float64List? get lastHitTestRegions => _lastHitTestRegions;
+
+  @override
+  void render(ui.Scene scene, {Size? size}) {}
+
+  @override
+  void updateSemantics(ui.SemanticsUpdate update) {}
+
+  @override
+  void updateHitTestRegions(Float64List regions) {
+    _lastHitTestRegions = regions;
+  }
 }
