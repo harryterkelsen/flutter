@@ -568,18 +568,16 @@ class RenderCustomPaint extends RenderProxyBox {
 
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
-    if (!hasSize || size.isEmpty) {
+    // Pointer events are accepted where the foreground painter's hitTest
+    // returns true (see hitTestChildren). Like the default rule, ask at the
+    // center of the bounds. The painter is covered by the default rule, which
+    // consults hitTestSelf, and regions accepted by the child are reported by
+    // the child itself.
+    if (hasSize && (_foregroundPainter?.hitTest(size.center(Offset.zero)) ?? false)) {
+      visitor(Offset.zero & size);
       return;
     }
-    // Pointer events are accepted where the foreground painter's hitTest
-    // returns true (see hitTestChildren), or where the painter's hitTest does
-    // not return false (see hitTestSelf). Like the default rule, ask at the
-    // center of the bounds. Regions accepted by the child are reported by the
-    // child itself.
-    final Offset center = size.center(Offset.zero);
-    if ((_foregroundPainter?.hitTest(center) ?? false) || hitTestSelf(center)) {
-      visitor(Offset.zero & size);
-    }
+    super.visitHitTestRegions(visitor);
   }
 
   @override
