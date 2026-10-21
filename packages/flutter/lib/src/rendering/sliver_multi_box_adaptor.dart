@@ -419,6 +419,22 @@ abstract class RenderSliverMultiBoxAdaptor extends RenderSliver
     // Do not visit children in [_keepAliveBucket].
   }
 
+  // Mirrors [paint]: children in [_keepAliveBucket] are never painted, and
+  // live children outside of the paint extent (for example, those laid out in
+  // the cache extent) are skipped.
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    RenderBox? child = firstChild;
+    while (child != null) {
+      final double mainAxisDelta = childMainAxisPosition(child);
+      if (mainAxisDelta < constraints.remainingPaintExtent &&
+          mainAxisDelta + paintExtentOf(child) > 0) {
+        visitor(child);
+      }
+      child = childAfter(child);
+    }
+  }
+
   @override
   Rect get semanticBounds {
     // If we laid out the first child but this sliver is not visible, we report the

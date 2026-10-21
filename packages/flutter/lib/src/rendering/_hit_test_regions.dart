@@ -15,6 +15,7 @@ import 'box.dart';
 import 'object.dart';
 import 'platform_view.dart';
 import 'proxy_box.dart';
+import 'viewport.dart';
 
 /// The hit-test regions collected for a single [PlatformViewRenderBox].
 ///
@@ -47,7 +48,7 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///
 /// ## How the regions are collected
 ///
-/// In one sentence: walk the render tree in child order, tracking the
+/// In one sentence: walk the render tree in paint order, tracking the
 /// accumulated paint transform and clip; every time a platform view is
 /// painted, start a new group for it, and every render box painted after that
 /// which would accept a pointer event and overlaps any platform view painted
@@ -55,17 +56,18 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///
 /// In more detail:
 ///
-/// * The walk follows [RenderObject.visitChildren] and treats anything visited
-///   after a platform view as painting on top of it. Child order matches paint
-///   order for most render objects, but not all: for example, viewports may
-///   paint their slivers in reverse order, and [RenderIndexedStack] lays out
-///   (and so is visited for) children that it does not paint. Such render
-///   objects are not handled specially yet, so regions under them may be
-///   missing or spurious.
+/// * The walk follows [RenderObject.visitChildrenInPaintOrder] and treats
+///   anything visited after a platform view as painting on top of it. Render
+///   objects whose paint order differs from their child order (for example,
+///   viewports, which may paint their slivers in reverse order) override that
+///   method to visit their children in the order they paint them, and to skip
+///   the children they do not paint (for example, the hidden children of a
+///   [RenderIndexedStack], or children kept alive while scrolled out of view).
 /// * Each child's transform is computed with [RenderObject.applyPaintTransform]
-///   and each child's clip with [RenderObject.describeApproximatePaintClip],
-///   so the rectangles are in the same coordinate space as the root (physical
-///   pixels when [root] is a [RenderView]).
+///   and each child's clip with [RenderObject.describeApproximatePaintClip]
+///   (except for the children of a [RenderViewportBase], which are clipped to
+///   the viewport's bounds), so the rectangles are in the same coordinate space
+///   as the root (physical pixels when [root] is a [RenderView]).
 /// * Subtrees that cannot receive pointer events are skipped: offstage
 ///   subtrees ([RenderOffstage]) are not visited at all, and render objects
 ///   under an ignoring [RenderIgnorePointer] or an absorbing
@@ -136,7 +138,21 @@ Float64List? computeHitTestRegions(RenderObject root) {
     }
   }
 
-  // Visits [node] and its descendants in child order (see above). [transform] maps
+  // Returns the clip, in [parent]'s coordinate space, that [parent] applies
+  // when painting [child], or null if it does not clip it.
+  Rect? paintClipOf(RenderObject parent, RenderObject child) {
+    // A viewport describes the clip of a sliver that a pinned or floating
+    // sliver overlaps as starting where the overlap ends, so that content
+    // scrolled under a pinned header is not reported as visible to
+    // accessibility. That content is still painted (under the header), so the
+    // viewport's own bounds are used instead.
+    if (parent is RenderViewportBase) {
+      return parent.clipBehavior == Clip.none ? null : Offset.zero & parent.size;
+    }
+    return parent.describeApproximatePaintClip(child);
+  }
+
+  // Visits [node] and its descendants in paint order (see above). [transform] maps
   // [node]'s local coordinates to the root's, [clip] is the accumulated paint
   // clip in root coordinates (or null if unclipped), and [ignoringPointers] is
   // true when an ancestor [RenderIgnorePointer] is ignoring pointer events or an
@@ -203,11 +219,11 @@ Float64List? computeHitTestRegions(RenderObject root) {
       }
     }
 
-    // Descend into the children in child order, accumulating each child's
-    // paint transform and clip.
-    node.visitChildren((RenderObject child) {
+    // Descend into the painted children in paint order, accumulating each
+    // child's paint transform and clip.
+    node.visitChildrenInPaintOrder((RenderObject child) {
       var childClip = clip;
-      final Rect? localClip = node.describeApproximatePaintClip(child);
+      final Rect? localClip = paintClipOf(node, child);
       if (localClip != null) {
         final Rect globalClip = localClip.isEmpty
             ? Rect.zero
