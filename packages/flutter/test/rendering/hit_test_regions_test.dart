@@ -75,6 +75,39 @@ class _PaintOrderFlowDelegate extends FlowDelegate {
   bool shouldRepaint(_PaintOrderFlowDelegate oldDelegate) => true;
 }
 
+/// A box with custom hit testing that accepts pointer events only within
+/// [regions] (in its local coordinates, which may extend beyond its own
+/// bounds), and reports exactly those regions as its hit-test regions.
+class _RegionHitTestBox extends RenderBox {
+  _RegionHitTestBox(this.regions);
+
+  final List<Rect> regions;
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (regions.any((Rect region) => region.contains(position))) {
+      result.add(BoxHitTestEntry(this, position));
+      return true;
+    }
+    return false;
+  }
+
+  // Under the generic rule this box would claim its whole bounds.
+  @override
+  bool hitTestSelf(Offset position) => true;
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    regions.forEach(visitor);
+  }
+}
+
 ViewConfiguration _createViewConfiguration({
   Size size = const Size(800.0, 600.0),
   double devicePixelRatio = 1.0,
@@ -891,6 +924,156 @@ void main() {
     expect(
       binding.rootPipelineOwner.debugLastHitTestRegions,
       equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+    );
+  });
+
+  test('visitHitTestRegions overrides report unclipped local rects instead of their bounds', () {
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    binding.automaticPointerInterceptorsEnabled = true;
+    binding.renderView.configuration = _createViewConfiguration(devicePixelRatio: 2.0);
+
+    final stack = RenderStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        _positioned(left: 0, top: 0, width: 400, height: 400, child: _createPlatformView(1)),
+        // Clips at x = 215 (logical), and maps the box's local point (x, y) to
+        // (20 + 2x, 10 + 2y) (logical).
+        _positioned(
+          left: 0,
+          top: 0,
+          width: 215,
+          height: 400,
+          child: RenderClipRect(
+            child: RenderTransform(
+              transform: Matrix4.translationValues(20.0, 10.0, 0.0)
+                ..multiply(Matrix4.diagonal3Values(2.0, 2.0, 1.0)),
+              child: _RegionHitTestBox(<Rect>[
+                // Inside the box's bounds.
+                const Rect.fromLTRB(5, 5, 15, 15),
+                // Crosses the ancestor clip.
+                const Rect.fromLTRB(90, 40, 110, 50),
+                // Extends above and to the left of the box's own bounds.
+                const Rect.fromLTRB(-5, -5, 5, 5),
+              ]),
+            ),
+          ),
+        ),
+        // Accepts pointer events nowhere, even though hitTestSelf is true.
+        _positioned(left: 300, top: 0, width: 50, height: 50, child: _RegionHitTestBox(<Rect>[])),
+      ],
+    );
+
+    layout(stack, phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+
+    // Each local rect is transformed to logical (20 + 2l, 10 + 2t, 20 + 2r,
+    // 10 + 2b), clipped at x = 215, and scaled by the device pixel ratio of 2.
+    expect(
+      binding.rootPipelineOwner.debugLastHitTestRegions,
+      equals(
+        Float64List.fromList(<double>[
+          1.0,
+          3.0,
+          60.0,
+          40.0,
+          100.0,
+          80.0,
+          400.0,
+          180.0,
+          430.0,
+          220.0,
+          20.0,
+          0.0,
+          60.0,
+          40.0,
+        ]),
+      ),
+    );
+  });
+
+  test('children overflowing an ancestor claim only where the ancestor hit tests them', () {
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    binding.automaticPointerInterceptorsEnabled = true;
+
+    final stack = RenderStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        _positioned(left: 0, top: 0, width: 400, height: 400, child: _createPlatformView(1)),
+        // An unclipped 100x100 stack whose child paints at (50, 60, 150, 160),
+        // but RenderStack.hitTest rejects positions outside the stack.
+        _positioned(
+          left: 0,
+          top: 0,
+          width: 100,
+          height: 100,
+          child: RenderStack(
+            textDirection: TextDirection.ltr,
+            clipBehavior: Clip.none,
+            children: <RenderBox>[
+              _positioned(
+                left: 50,
+                top: 60,
+                width: 100,
+                height: 100,
+                child: _createHitTarget(width: 100, height: 100),
+              ),
+            ],
+          ),
+        ),
+        // A 50x50 overflow box whose centered 100x100 child paints at
+        // (175, -25, 275, 75), but the overflow box rejects positions outside
+        // itself.
+        _positioned(
+          left: 200,
+          top: 0,
+          width: 50,
+          height: 50,
+          child: RenderConstrainedOverflowBox(
+            minWidth: 100,
+            maxWidth: 100,
+            minHeight: 100,
+            maxHeight: 100,
+            child: _createHitTarget(width: 100, height: 100),
+          ),
+        ),
+        // RenderTransform.hitTest does not check its own bounds, so the child
+        // painted outside them at (320, 100, 370, 150) is hit tested there.
+        _positioned(
+          left: 300,
+          top: 0,
+          width: 50,
+          height: 50,
+          child: RenderTransform(
+            transform: Matrix4.translationValues(20.0, 100.0, 0.0),
+            child: _createHitTarget(width: 50, height: 50),
+          ),
+        ),
+      ],
+    );
+
+    layout(stack, phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+
+    expect(
+      binding.rootPipelineOwner.debugLastHitTestRegions,
+      equals(
+        Float64List.fromList(<double>[
+          1.0,
+          3.0,
+          50.0,
+          60.0,
+          100.0,
+          100.0,
+          200.0,
+          0.0,
+          250.0,
+          50.0,
+          320.0,
+          100.0,
+          370.0,
+          150.0,
+        ]),
+      ),
     );
   });
 }

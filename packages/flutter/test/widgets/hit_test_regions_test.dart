@@ -70,6 +70,22 @@ class _PaintCountingPainter extends CustomPainter {
   bool shouldRepaint(_PaintCountingPainter oldDelegate) => false;
 }
 
+/// Paints nothing and answers every [hitTest] with [hit].
+class _HitTestPainter extends CustomPainter {
+  const _HitTestPainter(this.hit);
+
+  final bool? hit;
+
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool? hitTest(Offset position) => hit;
+
+  @override
+  bool shouldRepaint(_HitTestPainter oldDelegate) => hit != oldDelegate.hit;
+}
+
 /// Keeps [child] alive when it is scrolled out of view.
 class _KeepAlive extends StatefulWidget {
   const _KeepAlive({required this.child});
@@ -1352,4 +1368,82 @@ void main() {
       );
     },
   );
+
+  testWidgets('CustomPaint claims its rect exactly when its painters hit test it', (
+    WidgetTester tester,
+  ) async {
+    configureTestView(tester);
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+    final cases =
+        <({String description, CustomPainter? painter, CustomPainter? foreground, bool claims})>[
+          (
+            description: 'painter hit',
+            painter: const _HitTestPainter(true),
+            foreground: null,
+            claims: true,
+          ),
+          (
+            description: 'painter miss',
+            painter: const _HitTestPainter(false),
+            foreground: null,
+            claims: false,
+          ),
+          (
+            description: 'painter default',
+            painter: const _HitTestPainter(null),
+            foreground: null,
+            claims: true,
+          ),
+          (
+            description: 'foreground hit',
+            painter: null,
+            foreground: const _HitTestPainter(true),
+            claims: true,
+          ),
+          (
+            description: 'foreground miss',
+            painter: null,
+            foreground: const _HitTestPainter(false),
+            claims: false,
+          ),
+          (
+            description: 'foreground default',
+            painter: null,
+            foreground: const _HitTestPainter(null),
+            claims: false,
+          ),
+        ];
+
+    for (final c in cases) {
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Stack(
+            children: <Widget>[
+              Positioned(left: 0, top: 0, width: 400, height: 400, child: _buildPlatformView(1)),
+              Positioned(
+                left: 10,
+                top: 20,
+                width: 100,
+                height: 50,
+                child: CustomPaint(painter: c.painter, foregroundPainter: c.foreground),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(
+          Float64List.fromList(
+            c.claims ? <double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0] : <double>[1.0, 0.0],
+          ),
+        ),
+        reason: c.description,
+      );
+    }
+  });
 }
