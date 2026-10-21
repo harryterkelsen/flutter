@@ -179,7 +179,15 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 /// encountered during the walk.
 Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = true}) {
   final groups = <_PlatformViewHitTestGroup>[];
+  final int? totalPlatformViews = root.owner?.attachedPlatformViewCount;
+  var visitedPlatformViews = 0;
   var currentGroupFullyCovered = false;
+
+  bool allPlatformViewsVisited() {
+    return enableEarlyStop &&
+        totalPlatformViews != null &&
+        visitedPlatformViews >= totalPlatformViews;
+  }
 
   bool overlapsAnyPlatformView(Rect rect) {
     if (!rect.isFinite || rect.isEmpty) {
@@ -287,7 +295,12 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   final transformStack = <Matrix4>[Matrix4.identity()];
   Matrix4 currentTransform = transformStack[0];
   Rect? currentHitTestClip;
+  Rect? currentNodeBounds;
+  var claimedOwnBounds = false;
   void claimRegion(Rect localRect) {
+    if (currentNodeBounds != null && _rectContains(localRect, currentNodeBounds!)) {
+      claimedOwnBounds = true;
+    }
     addClaimedRect(localRect, currentTransform, currentHitTestClip);
   }
 
@@ -354,6 +367,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     // A platform view starts a new group. Everything visited after this point
     // paints on top of it.
     if (node is PlatformViewRenderBox) {
+      visitedPlatformViews += 1;
       if (!node.size.isEmpty) {
         final Rect globalRect = toGlobal(Offset.zero & node.size, transform);
         if (!globalRect.isFinite || globalRect.isEmpty) {
@@ -370,6 +384,20 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       return;
     }
 
+    if (allPlatformViewsVisited() &&
+        (currentGroupFullyCovered ||
+            !canClaim ||
+            clipMissedAtGroupCount == groups.length)) {
+      return;
+    }
+
+    final bool checksBounds = canClaim &&
+        node is RenderBox &&
+        node.hasSize &&
+        // ignore: invalid_use_of_protected_member
+        !node.hitTestsChildrenOutsideBounds;
+    var nodeClaimedOwnBounds = false;
+
     // Nothing can cover a platform view until one has been painted, and
     // render objects that pointer events cannot reach never claim a region.
     // Only boxes claim regions; render objects that are not boxes (such as
@@ -382,22 +410,23 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         // answered, without running a full hit test.
         currentTransform = transform;
         currentHitTestClip = hitTestClip;
+        currentNodeBounds = checksBounds ? (Offset.zero & (node as RenderBox).size) : null;
+        claimedOwnBounds = false;
         // ignore: invalid_use_of_protected_member
         node.visitHitTestRegions(claimRegion);
+        nodeClaimedOwnBounds = enableEarlyStop && claimedOwnBounds;
+      }
+      if (allPlatformViewsVisited() && (currentGroupFullyCovered || nodeClaimedOwnBounds)) {
+        return;
       }
     }
 
-    // A box whose hitTest rejects positions outside of its bounds before hit
-    // testing its children restricts where its descendants can be hit, even
-    // if it does not clip their painting.
-    //
-    // hitTestsChildrenOutsideBounds is protected, but whether a box's
-    // children can be hit outside of its bounds is exactly what this pass
-    // needs to know.
-    //
-    // The hit-test clip is only read when a region is claimed, so it is not
-    // computed for subtrees in which nothing can claim.
-    var descendantsHitTestClip = hitTestClip;
+    // A box that only hit tests within its bounds restricts where its
+    // descendants can be hit, even if it does not clip their painting.
+    int? descendantsClipMissedAtGroupCount = nodeClaimedOwnBounds
+        ? groups.length
+        : clipMissedAtGroupCount;
+    final Rect? descendantsHitTestClip;
     final bool restrictsChildren = childrenCanClaim &&
         node is RenderBox &&
         node.hasSize &&
@@ -406,16 +435,18 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     if (restrictsChildren) {
       descendantsHitTestClip = intersectClip(
         hitTestClip,
-        toGlobal(Offset.zero & node.size, transform),
+        toGlobal(Offset.zero & (node as RenderBox).size, transform),
       );
-    }
-    var descendantsClipMissedAtGroupCount = clipMissedAtGroupCount;
-    if (restrictsChildren &&
-        groups.isNotEmpty &&
-        descendantsClipMissedAtGroupCount != groups.length &&
-        descendantsHitTestClip != null &&
-        !overlapsAnyPlatformView(descendantsHitTestClip)) {
-      descendantsClipMissedAtGroupCount = groups.length;
+      if (groups.isNotEmpty &&
+          descendantsClipMissedAtGroupCount != groups.length &&
+          !overlapsAnyPlatformView(descendantsHitTestClip)) {
+        descendantsClipMissedAtGroupCount = groups.length;
+      }
+      if (allPlatformViewsVisited() && descendantsClipMissedAtGroupCount == groups.length) {
+        return;
+      }
+    } else {
+      descendantsHitTestClip = hitTestClip;
     }
 
     // Descend into the painted children in paint order, accumulating each
@@ -430,13 +461,15 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   }
 
   visitChild = (RenderObject child) {
+    if (allPlatformViewsVisited() && currentGroupFullyCovered) {
+      return;
+    }
     // A box that has never been laid out (for example, an overlay entry
     // that has been offstage since it was inserted) is not painted, and
     // computing its clip or its children's transforms may read its size.
     if (child is RenderBox && !child.hasSize) {
       return;
     }
-
     final node = currentParent;
     final depth = currentDepth;
     final Matrix4 transform = transformStack[depth];
