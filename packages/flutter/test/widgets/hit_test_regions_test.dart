@@ -192,6 +192,46 @@ void main() {
     },
   );
 
+  testWidgets('delivers hit-test regions to the view of an explicit View widget', (
+    WidgetTester tester,
+  ) async {
+    configureTestView(tester);
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+    Widget buildView({required bool withPlatformView}) {
+      return View(
+        view: tester.view,
+        child: Directionality(
+          textDirection: TextDirection.ltr,
+          child: Stack(
+            children: <Widget>[
+              if (withPlatformView)
+                Positioned(left: 0, top: 0, width: 400, height: 400, child: _buildPlatformView(1)),
+              Positioned(
+                left: 10,
+                top: 20,
+                width: 100,
+                height: 50,
+                child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // The View widget owns its PipelineOwner instead of using the binding's.
+    await tester.pumpWidget(wrapWithView: false, buildView(withPlatformView: true));
+    expect(
+      tester.view.lastHitTestRegions,
+      equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+    );
+
+    await tester.pumpWidget(wrapWithView: false, buildView(withPlatformView: false));
+    expect(tester.view.lastHitTestRegions, equals(Float64List(0)));
+  });
+
   testWidgets(
     'home route content painted before platform view produces no rects and overlay button produces physical rect at DPR 1.0 and 3.0',
     (WidgetTester tester) async {
