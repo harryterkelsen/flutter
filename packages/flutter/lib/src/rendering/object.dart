@@ -951,6 +951,16 @@ abstract class Constraints {
 /// Used by [RenderObject.visitChildren] and [RenderObject.visitChildrenForSemantics].
 typedef RenderObjectVisitor = void Function(RenderObject child);
 
+/// Signature for a function that is called with each rectangle in which a
+/// [RenderObject] accepts pointer events.
+///
+/// The `localRect` is in the coordinate space of the render object that
+/// reports it, and is not clipped to that render object's bounds nor to any
+/// ancestor's clip.
+///
+/// Used by [RenderObject.visitHitTestRegions].
+typedef HitTestRegionVisitor = void Function(Rect localRect);
+
 /// Signature for a function that is called during layout.
 ///
 /// Used by [RenderObject.invokeLayoutCallback].
@@ -2386,6 +2396,74 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   ///    instead.
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     visitChildren(visitor);
+  }
+
+  /// Calls visitor with each rectangle, in this render object's local
+  /// coordinate space, in which this render object itself accepts pointer
+  /// events.
+  ///
+  /// This is used to find the parts of the screen where Flutter content that
+  /// is painted on top of a platform view (see [PlatformViewRenderBox]) wants
+  /// pointer events, so that pointer events there can be routed to Flutter
+  /// rather than to the platform view. It is only consulted for render objects
+  /// painted after a platform view, and never for render objects under an
+  /// ignoring [RenderIgnorePointer] or an offstage [RenderOffstage].
+  ///
+  /// The rectangles passed to visitor are unclipped local rectangles: they do
+  /// not need to be clipped to this render object's bounds (they may extend
+  /// beyond them, if this render object accepts pointer events there), nor to
+  /// any clip applied by an ancestor. The caller maps each rectangle into
+  /// global (physical pixel) coordinates using the ancestors'
+  /// [applyPaintTransform], and clips it to the ancestors' paint clips and to
+  /// the bounds of ancestor [RenderBox]es that reject pointer events outside
+  /// of their size.
+  ///
+  /// Only report the rectangles in which this render object accepts pointer
+  /// events on its own behalf; regions claimed by its children are collected
+  /// by visiting the children. Rectangles may overlap, and may be larger than
+  /// the exact area in which this render object accepts pointer events (for
+  /// example, the bounding box of a circle), but a render object should not
+  /// report rectangles in which it never accepts pointer events, because
+  /// pointer events there would then not reach the platform view.
+  ///
+  /// The default implementation reports the bounds of a [RenderBox] whose
+  /// [RenderBox.hitTestSelf] returns true at the center of its bounds, and
+  /// nothing otherwise. Override this method in render objects whose hit test
+  /// (for example a custom [RenderBox.hitTest] or [RenderBox.hitTestChildren])
+  /// accepts pointer events in a different area than that rule describes.
+  ///
+  /// {@tool snippet}
+  ///
+  /// A render box that only accepts pointer events within a 10 pixel radius of
+  /// its center can report just that circle's bounding box, rather than its
+  /// whole bounds:
+  ///
+  /// ```dart
+  /// class RenderDot extends RenderBox {
+  ///   // ...
+  ///
+  ///   @override
+  ///   bool hitTestSelf(Offset position) {
+  ///     return (position - size.center(Offset.zero)).distance <= 10.0;
+  ///   }
+  ///
+  ///   @override
+  ///   void visitHitTestRegions(HitTestRegionVisitor visitor) {
+  ///     visitor(Rect.fromCircle(center: size.center(Offset.zero), radius: 10.0));
+  ///   }
+  /// }
+  /// ```
+  /// {@end-tool}
+  ///
+  /// See also:
+  ///
+  ///  * [visitChildrenInPaintOrder], which determines which render objects are
+  ///    painted on top of a platform view.
+  ///  * [describeApproximatePaintClip], which determines how the rectangles
+  ///    reported by descendants are clipped.
+  @protected
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    visitDefaultHitTestRegions(this, visitor);
   }
 
   /// The object responsible for creating this render object.
