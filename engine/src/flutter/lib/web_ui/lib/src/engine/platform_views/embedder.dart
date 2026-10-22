@@ -136,7 +136,8 @@ class PlatformViewEmbedder {
   /// rendering, before the frame reaches [submitFrame]. A `<flt-hit-test-proxy>`
   /// element is placed right after each platform view in the scene that has a
   /// non-empty group in [regions]. Groups for platform views that are not in
-  /// the scene are ignored.
+  /// the scene are ignored. If [regions] has no non-empty groups, any existing
+  /// `<flt-hit-test-proxy>` elements for this view are removed immediately.
   ///
   /// See [ui.FlutterView.updateHitTestRegions] for the encoding of [regions].
   void updateHitTestRegions(Float64List regions) {
