@@ -1081,10 +1081,197 @@ void main() {
       expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
     },
   );
+
+  testWidgets(
+    'toggling automaticPointerInterceptorsEnabled off at runtime clears hit-test regions across ViewCollection and ViewAnchor views',
+    (WidgetTester tester) async {
+      configureTestView(tester);
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+      final secondView = _TestFlutterView(tester.view);
+      final thirdView = _TestFlutterView(tester.view, viewId: 101);
+
+      Widget buildViewWithPv(int pvId, Rect overlayRect, {Widget? viewAnchorChild}) {
+        final stack = Stack(
+          children: <Widget>[
+            Positioned(left: 0, top: 0, width: 200, height: 200, child: _buildPlatformView(pvId)),
+            Positioned.fromRect(
+              rect: overlayRect,
+              child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+            ),
+          ],
+        );
+        return Directionality(
+          textDirection: TextDirection.ltr,
+          child: viewAnchorChild != null ? ViewAnchor(view: viewAnchorChild, child: stack) : stack,
+        );
+      }
+
+      await tester.pumpWidget(
+        wrapWithView: false,
+        ViewCollection(
+          views: <Widget>[
+            View(view: tester.view, child: buildViewWithPv(1, const Rect.fromLTWH(10, 20, 50, 60))),
+            View(
+              view: secondView,
+              child: buildViewWithPv(
+                2,
+                const Rect.fromLTWH(30, 40, 70, 80),
+                viewAnchorChild: View(
+                  view: thirdView,
+                  child: buildViewWithPv(3, const Rect.fromLTWH(5, 15, 25, 35)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 60.0, 80.0])),
+      );
+      expect(
+        secondView.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[2.0, 1.0, 30.0, 40.0, 100.0, 120.0])),
+      );
+      expect(
+        thirdView.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[3.0, 1.0, 5.0, 15.0, 30.0, 50.0])),
+      );
+      expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNotNull);
+
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
+
+      expect(tester.view.lastHitTestRegions, equals(Float64List(0)));
+      expect(secondView.lastHitTestRegions, equals(Float64List(0)));
+      expect(thirdView.lastHitTestRegions, equals(Float64List(0)));
+      expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
+    },
+  );
+
+  testWidgets(
+    'reparenting a GlobalKey-keyed platform view between two Views in a single frame clears source view and updates destination view',
+    (WidgetTester tester) async {
+      configureTestView(tester);
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+      final secondView = _TestFlutterView(tester.view);
+      final GlobalKey pvKey = GlobalKey();
+      final Widget keyedPv = KeyedSubtree(key: pvKey, child: _buildPlatformView(1));
+
+      Widget buildTrees({required bool pvInSecondView}) {
+        return ViewCollection(
+          views: <Widget>[
+            View(
+              view: tester.view,
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: Stack(
+                  children: <Widget>[
+                    if (!pvInSecondView)
+                      Positioned(left: 0, top: 0, width: 200, height: 200, child: keyedPv),
+                    Positioned(
+                      left: 10,
+                      top: 20,
+                      width: 50,
+                      height: 60,
+                      child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            View(
+              view: secondView,
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: Stack(
+                  children: <Widget>[
+                    if (pvInSecondView)
+                      Positioned(left: 0, top: 0, width: 200, height: 200, child: keyedPv),
+                    Positioned(
+                      left: 30,
+                      top: 40,
+                      width: 70,
+                      height: 80,
+                      child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      }
+
+      await tester.pumpWidget(wrapWithView: false, buildTrees(pvInSecondView: false));
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 60.0, 80.0])),
+      );
+      expect(secondView.lastHitTestRegions, isNull);
+
+      await tester.pumpWidget(wrapWithView: false, buildTrees(pvInSecondView: true));
+      expect(tester.view.lastHitTestRegions, equals(Float64List(0)));
+      expect(
+        secondView.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 30.0, 40.0, 100.0, 120.0])),
+      );
+    },
+  );
+
+  testWidgets(
+    'detaching rootNode from deprecated RendererBinding.pipelineOwner clears lastHitTestRegions before rootNode becomes null',
+    (WidgetTester tester) async {
+      configureTestView(tester);
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: Stack(
+            children: <Widget>[
+              Positioned(left: 0, top: 0, width: 200, height: 200, child: _buildPlatformView(1)),
+              Positioned(
+                left: 10,
+                top: 20,
+                width: 50,
+                height: 60,
+                child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(
+        tester.view.lastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 60.0, 80.0])),
+      );
+
+      final PipelineOwner defaultOwner =
+          RendererBinding.instance.pipelineOwner; // ignore: deprecated_member_use
+      final RenderObject? savedRootNode = defaultOwner.rootNode;
+      addTearDown(() {
+        if (defaultOwner.rootNode == null && savedRootNode != null) {
+          defaultOwner.rootNode = savedRootNode;
+        }
+      });
+
+      defaultOwner.rootNode = null;
+      expect(tester.view.lastHitTestRegions, equals(Float64List(0)));
+
+      defaultOwner.rootNode = savedRootNode;
+    },
+  );
 }
 
 class _TestFlutterView extends TestFlutterView {
-  _TestFlutterView(FlutterView view)
+  _TestFlutterView(FlutterView view, {this.viewId = 100})
     : super(
         view: view,
         platformDispatcher: view.platformDispatcher as TestPlatformDispatcher,
@@ -1092,7 +1279,7 @@ class _TestFlutterView extends TestFlutterView {
       );
 
   @override
-  int get viewId => 100;
+  final int viewId;
 
   double _devicePixelRatio = 1.0;
 
