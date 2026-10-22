@@ -291,46 +291,25 @@ void main() {
 
       layout(stack, phase: EnginePhase.composite);
       binding.pumpCompleteFrame();
-      expect(
-        binding.rootPipelineOwner.debugLastHitTestRegions,
-        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
-      );
+      final expectedRegions = Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0]);
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+
+      // Redundant opt-in when already true by default is a no-op.
+      binding.automaticPointerInterceptorsEnabled = true;
+      expect(binding.hasScheduledFrame, isFalse);
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+
+      // Opting out clears regions; re-enabling schedules a frame and restores them.
+      binding.automaticPointerInterceptorsEnabled = false;
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      binding.pumpCompleteFrame();
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      binding.automaticPointerInterceptorsEnabled = true;
+      expect(binding.hasScheduledFrame, isTrue);
+      binding.pumpCompleteFrame();
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
     });
-    binding.pumpCompleteFrame();
-    return binding.rootPipelineOwner.debugLastHitTestRegions;
-  }
 
-  Float64List? regionsFor(RenderBox root) {
-    layout(root, phase: EnginePhase.composite);
-    return regionsAfterFrame();
-  }
-
-  /// Creates a pipeline owner for a view showing [child] that records every
-  /// payload it is sent in [updates], adopted by [parent] (if any) as in a
-  /// multi-view app.
-  PipelineOwner createViewOwner(
-    RenderBox child,
-    List<Float64List> updates, {
-    PipelineOwner? parent,
-  }) {
-    final owner = PipelineOwner(onHitTestRegionsUpdate: updates.add);
-    parent?.adoptChild(owner);
-    final view = RenderView(
-      configuration: _viewConfiguration(),
-      view: binding.platformDispatcher.views.single,
-    );
-    owner.rootNode = view;
-    view.prepareInitialFrame();
-    view.child = child;
-    addTearDown(() {
-      owner.rootNode = null;
-      parent?.dropChild(owner);
-      owner.dispose();
-    });
-    return owner;
-  }
-
-  group('gating and delivery', () {
     test('the pass does not run while the flag is off, nor off the web without the debug flag', () {
       binding.automaticPointerInterceptorsEnabled = false;
       final RenderStack root = _stack(<RenderBox>[
