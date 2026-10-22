@@ -233,6 +233,7 @@ void main() {
   tearDown(() {
     binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
     debugEnableHitTestRegionsOnAllPlatforms = false;
+    binding.rootPipelineOwner.clearHitTestRegions();
     binding.renderView.configuration = initialConfiguration;
     // Detach this test's platform views from the root pipeline owner.
     binding.renderView.child = null;
