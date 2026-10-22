@@ -202,10 +202,23 @@ void main() {
 
     layout(stack, phase: EnginePhase.composite);
     binding.pumpCompleteFrame();
-    expect(
-      binding.rootPipelineOwner.debugLastHitTestRegions,
-      equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
-    );
+    final expectedRegions = Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0]);
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+
+    // Redundant opt-in when already true by default is a no-op.
+    binding.automaticPointerInterceptorsEnabled = true;
+    expect(binding.hasScheduledFrame, isFalse);
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+
+    // Opting out clears regions; re-enabling schedules a frame and restores them.
+    binding.automaticPointerInterceptorsEnabled = false;
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+    binding.pumpCompleteFrame();
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+    binding.automaticPointerInterceptorsEnabled = true;
+    expect(binding.hasScheduledFrame, isTrue);
+    binding.pumpCompleteFrame();
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
   });
 
   test('does not compute hit-test regions when flag is off or not on web without override', () {
