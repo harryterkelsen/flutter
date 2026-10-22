@@ -5,7 +5,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/src/rendering/_hit_test_regions.dart';
+import 'package:flutter/src/rendering/hit_test_regions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../services/fake_platform_views.dart';
