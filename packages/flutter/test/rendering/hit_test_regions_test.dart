@@ -219,17 +219,19 @@ ViewConfiguration _createViewConfiguration({
 
 void main() {
   final TestRenderingFlutterBinding binding = TestRenderingFlutterBinding.ensureInitialized();
+  final bool initialAutomaticPointerInterceptorsEnabled =
+      binding.automaticPointerInterceptorsEnabled;
   late ViewConfiguration initialConfiguration;
 
   setUp(() {
     initialConfiguration = binding.renderView.configuration;
     binding.renderView.configuration = _viewConfiguration();
     debugEnableHitTestRegionsOnAllPlatforms = true;
-    binding.automaticPointerInterceptorsEnabled = true;
+    binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
   });
 
   tearDown(() {
-    binding.automaticPointerInterceptorsEnabled = false;
+    binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
     debugEnableHitTestRegionsOnAllPlatforms = false;
     binding.renderView.configuration = initialConfiguration;
     // Detach this test's platform views from the root pipeline owner.
@@ -239,6 +241,61 @@ void main() {
   /// Runs a full binding frame, which runs the hit-test region pass after
   /// drawFrame, and returns the payload computed for the root view.
   Float64List? regionsAfterFrame() {
+    binding.pumpCompleteFrame();
+    return binding.rootPipelineOwner.debugLastHitTestRegions;
+  }
+
+  Float64List? regionsFor(RenderBox root) {
+    layout(root, phase: EnginePhase.composite);
+    return regionsAfterFrame();
+  }
+
+  /// Creates a pipeline owner for a view showing [child] that records every
+  /// payload it is sent in [updates], adopted by [parent] (if any) as in a
+  /// multi-view app.
+  PipelineOwner createViewOwner(
+    RenderBox child,
+    List<Float64List> updates, {
+    PipelineOwner? parent,
+  }) {
+    final owner = PipelineOwner(onHitTestRegionsUpdate: updates.add);
+    parent?.adoptChild(owner);
+    final view = RenderView(
+      configuration: _viewConfiguration(),
+      view: binding.platformDispatcher.views.single,
+    );
+    owner.rootNode = view;
+    view.prepareInitialFrame();
+    view.child = child;
+    addTearDown(() {
+      owner.rootNode = null;
+      parent?.dropChild(owner);
+      owner.dispose();
+    });
+    return owner;
+  }
+
+  group('gating and delivery', () {
+    test('automaticPointerInterceptorsEnabled defaults to true and computes hit-test regions without opt-in', () {
+      expect(initialAutomaticPointerInterceptorsEnabled, isTrue);
+      expect(binding.automaticPointerInterceptorsEnabled, isTrue);
+
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      final stack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 0, top: 0, width: 300, height: 300, child: _createPlatformView(1)),
+          _positioned(left: 10, top: 20, width: 100, height: 50, child: _createHitTarget()),
+        ],
+      );
+
+      layout(stack, phase: EnginePhase.composite);
+      binding.pumpCompleteFrame();
+      expect(
+        binding.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+      );
+    });
     binding.pumpCompleteFrame();
     return binding.rootPipelineOwner.debugLastHitTestRegions;
   }
