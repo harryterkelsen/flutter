@@ -180,6 +180,7 @@ void main() {
   tearDown(() {
     debugEnableHitTestRegionsOnAllPlatforms = false;
     binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
+    binding.rootPipelineOwner.clearHitTestRegions();
     binding.renderView.configuration = initialConfiguration;
     final RenderBox emptyBox = RenderConstrainedBox(
       additionalConstraints: const BoxConstraints.tightFor(width: 0.0, height: 0.0),
