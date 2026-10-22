@@ -382,12 +382,12 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
 
     if (allPlatformViewsVisited() &&
         (currentGroupFullyCovered ||
-            childIgnoringPointers ||
+            selfIgnoringPointers ||
             clipMissedAtGroupCount == groups.length)) {
       return;
     }
 
-    final bool checksBounds = !childIgnoringPointers && hitTestsWithinBounds(node);
+    final bool checksBounds = !selfIgnoringPointers && hitTestsWithinBounds(node);
     var nodeClaimedOwnBounds = false;
 
     // Nothing can cover a platform view until one has been painted, and

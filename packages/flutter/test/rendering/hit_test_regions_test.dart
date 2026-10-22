@@ -1403,7 +1403,8 @@ void main() {
               child: _createHitTarget(width: 200, height: 200),
             ),
             // Absorbing RenderAbsorbPointer visited while currentGroupFullyCovered is true:
-            // must still skip its subtree so the absorbed PV2 does not start a group.
+            // its subtree is still visited for platform views (PV2 starts a group), while
+            // non-platform-view children inside it never claim regions.
             _positioned(
               left: 50,
               top: 50,
@@ -1432,7 +1433,8 @@ void main() {
               ),
             ),
             // Absorbing RenderAbsorbPointer inside a clipped subtree that misses PV1:
-            // must also skip its subtree so the absorbed PV3 does not start a group.
+            // its subtree is still visited for platform views (PV3 starts a group), while
+            // non-platform-view children inside it never claim regions.
             _positioned(
               left: 0,
               top: 0,
@@ -1472,7 +1474,13 @@ void main() {
         expect(insideClipMissedAbsorber.visitCount, 0);
         expect(
           withEarlyStop,
-          equals(Float64List.fromList(<double>[1.0, 1.0, 0.0, 0.0, 200.0, 200.0])),
+          equals(
+            Float64List.fromList(<double>[
+              1.0, 1.0, 0.0, 0.0, 200.0, 200.0, //
+              2.0, 0.0, //
+              3.0, 0.0,
+            ]),
+          ),
         );
         expect(withEarlyStop, equals(computeHitTestRegions(stack, enableEarlyStop: false)));
       },
