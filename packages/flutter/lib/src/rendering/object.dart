@@ -1117,7 +1117,7 @@ base class PipelineOwner with DiagnosticableTreeMixin {
     if (_rootNode == value) {
       return;
     }
-    if (value == null) {
+    if (_rootNode != null) {
       _resetHitTestRegions();
     }
     _rootNode?.detach();
