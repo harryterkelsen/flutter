@@ -582,18 +582,22 @@ mixin RendererBinding
     }
   }
 
-  bool _automaticPointerInterceptorsEnabled = false;
+  bool _automaticPointerInterceptorsEnabled = true;
 
   /// Whether the framework automatically computes hit-test regions that overlap
   /// platform views and sends them to the engine each frame.
   ///
   /// When enabled, [PipelineOwner.flushHitTestRegions] runs after every frame
-  /// and reports the regions through [PipelineOwner.onHitTestRegionsUpdate].
+  /// when a platform view is attached and reports overlapping hit-test regions
+  /// through [PipelineOwner.onHitTestRegionsUpdate] so the web engine can
+  /// intercept pointer events over platform views. Setting this to `false` opts
+  /// out and immediately clears any previously reported regions via
+  /// [PipelineOwner.clearHitTestRegions].
   ///
   /// This flag is experimental and only has an effect on the web (unless
   /// [debugEnableHitTestRegionsOnAllPlatforms] is enabled in tests).
   ///
-  /// Defaults to false.
+  /// Defaults to true.
   bool get automaticPointerInterceptorsEnabled => _automaticPointerInterceptorsEnabled;
   set automaticPointerInterceptorsEnabled(bool value) {
     if (_automaticPointerInterceptorsEnabled == value) {
