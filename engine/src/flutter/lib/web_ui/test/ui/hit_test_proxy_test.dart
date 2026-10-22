@@ -532,6 +532,23 @@ Future<void> testMain() async {
         view2.updateHitTestRegions(Float64List(0));
         expect(_proxies(view2), isEmpty);
         expect(_proxies(implicitView), hasLength(1));
+
+        // 4. Re-render view2 with a proxy, then report a non-empty payload containing
+        // only a zero-rect group ([pv102, 0]) without rendering a new scene ->
+        // view2's proxies are immediately cleared while implicitView's proxy stays intact.
+        await renderViewWithRegions(
+          view2,
+          buildPvScene(<(int, ui.Rect)>[(pv102, _pv2Rect)], dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (pv102, <ui.Rect>[_dialogRect]),
+          ], dpr),
+        );
+        expect(_proxies(view2), hasLength(1));
+
+        view2.updateHitTestRegions(Float64List.fromList(<double>[pv102.toDouble(), 0]));
+        expect(_proxies(view2), isEmpty);
+        expect(_sceneChildren(view2), <String>['pv-$pv102']);
+        expect(_proxies(implicitView), hasLength(1));
       });
     });
   }
