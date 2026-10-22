@@ -27,9 +27,9 @@ import 'package:flutter/painting.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/semantics.dart';
 
-import 'hit_test_regions.dart';
 import 'binding.dart';
 import 'debug.dart';
+import 'hit_test_regions.dart';
 import 'layer.dart';
 
 export 'package:flutter/foundation.dart'
