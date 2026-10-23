@@ -419,6 +419,29 @@ abstract class RenderSliverMultiBoxAdaptor extends RenderSliver
     // Do not visit children in [_keepAliveBucket].
   }
 
+  // Mirrors [paint]: children in [_keepAliveBucket] are never painted, and
+  // live children outside of the paint extent (for example, those laid out in
+  // the cache extent) are skipped.
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    RenderBox? child = firstChild;
+    while (child != null) {
+      if (_isChildPainted(child, childMainAxisPosition(child))) {
+        visitor(child);
+      }
+      child = childAfter(child);
+    }
+  }
+
+  // Whether [paint] paints [child], whose main axis position is
+  // [mainAxisDelta]: a child whose visible interval (mainAxisDelta,
+  // mainAxisDelta + paintExtentOf(child)) does not intersect the paint extent
+  // interval (0, constraints.remainingPaintExtent) is hidden.
+  bool _isChildPainted(RenderBox child, double mainAxisDelta) {
+    return mainAxisDelta < constraints.remainingPaintExtent &&
+        mainAxisDelta + paintExtentOf(child) > 0;
+  }
+
   @override
   Rect get semanticBounds {
     // If we laid out the first child but this sliver is not visible, we report the
@@ -734,10 +757,7 @@ abstract class RenderSliverMultiBoxAdaptor extends RenderSliver
         childOffset += mainAxisUnit * paintExtentOf(child);
       }
 
-      // If the child's visible interval (mainAxisDelta, mainAxisDelta + paintExtentOf(child))
-      // does not intersect the paint extent interval (0, constraints.remainingPaintExtent), it's hidden.
-      if (mainAxisDelta < constraints.remainingPaintExtent &&
-          mainAxisDelta + paintExtentOf(child) > 0) {
+      if (_isChildPainted(child, mainAxisDelta)) {
         context.paintChild(child, childOffset);
       }
 

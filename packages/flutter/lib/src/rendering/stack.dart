@@ -783,6 +783,15 @@ class RenderIndexedStack extends RenderStack {
     }
   }
 
+  // Only the displayed child is painted (see [paintStack]).
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    final RenderBox? displayedChild = _childAtIndex();
+    if (displayedChild != null) {
+      visitor(displayedChild);
+    }
+  }
+
   /// The index of the child to show, null if nothing is to be displayed.
   int? get index => _index;
   int? _index;
