@@ -166,23 +166,60 @@ ViewConfiguration _createViewConfiguration({
 
 void main() {
   final TestRenderingFlutterBinding binding = TestRenderingFlutterBinding.ensureInitialized();
+  final bool initialAutomaticPointerInterceptorsEnabled =
+      binding.automaticPointerInterceptorsEnabled;
   late ViewConfiguration initialConfiguration;
 
   setUp(() {
     initialConfiguration = binding.renderView.configuration;
     binding.renderView.configuration = _createViewConfiguration();
     debugEnableHitTestRegionsOnAllPlatforms = false;
-    binding.automaticPointerInterceptorsEnabled = false;
+    binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
   });
 
   tearDown(() {
     debugEnableHitTestRegionsOnAllPlatforms = false;
-    binding.automaticPointerInterceptorsEnabled = false;
+    binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
+    binding.rootPipelineOwner.clearHitTestRegions();
     binding.renderView.configuration = initialConfiguration;
     final RenderBox emptyBox = RenderConstrainedBox(
       additionalConstraints: const BoxConstraints.tightFor(width: 0.0, height: 0.0),
     );
     layout(emptyBox);
+  });
+
+  test('automaticPointerInterceptorsEnabled defaults to true and computes hit-test regions without opt-in', () {
+    expect(initialAutomaticPointerInterceptorsEnabled, isTrue);
+    expect(binding.automaticPointerInterceptorsEnabled, isTrue);
+
+    debugEnableHitTestRegionsOnAllPlatforms = true;
+    final stack = RenderStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        _positioned(left: 0, top: 0, width: 300, height: 300, child: _createPlatformView(1)),
+        _positioned(left: 10, top: 20, width: 100, height: 50, child: _createHitTarget()),
+      ],
+    );
+
+    layout(stack, phase: EnginePhase.composite);
+    binding.pumpCompleteFrame();
+    final expectedRegions = Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0]);
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+
+    // Redundant opt-in when already true by default is a no-op.
+    binding.automaticPointerInterceptorsEnabled = true;
+    expect(binding.hasScheduledFrame, isFalse);
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+
+    // Opting out clears regions; re-enabling schedules a frame and restores them.
+    binding.automaticPointerInterceptorsEnabled = false;
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+    binding.pumpCompleteFrame();
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+    binding.automaticPointerInterceptorsEnabled = true;
+    expect(binding.hasScheduledFrame, isTrue);
+    binding.pumpCompleteFrame();
+    expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
   });
 
   test('does not compute hit-test regions when flag is off or not on web without override', () {
