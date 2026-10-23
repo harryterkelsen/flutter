@@ -17,7 +17,6 @@ import 'utils.dart';
 
 EngineFlutterWindow get implicitView => EnginePlatformDispatcher.instance.implicitView!;
 
-DomElement get sceneHost => implicitView.dom.sceneHost;
 DomShadowRoot get renderingHost => implicitView.dom.renderingHost;
 
 void main() {
@@ -399,6 +398,158 @@ Future<void> testMain() async {
         expect(pv2Children.single, isIn(pv1Children));
         _expectProxyRect(pv2Children.single, _pv2Rect);
       });
+
+      test('immediately removes proxies when an empty payload is reported without rendering a new scene or when a platform view is disposed', () async {
+        await renderDialogOverPlatformView();
+        expect(_proxies(), hasLength(1));
+
+        // Reporting an empty payload without a subsequent scene render (such as
+        // when automaticPointerInterceptorsEnabled is toggled off at runtime or
+        // a View widget is removed from a ViewCollection) removes proxies immediately.
+        implicitView.updateHitTestRegions(Float64List(0));
+        expect(_proxies(), isEmpty);
+        expect(_sceneChildren(), <String>['pv-$_pv1', 'pv-$_pv2']);
+
+        // Re-render with non-empty regions, then dispose PV1 directly.
+        await renderDialogOverPlatformView();
+        expect(_proxies(), hasLength(1));
+        renderer.rasterizers[implicitView.viewId]!.viewEmbedder.disposeView(_pv1);
+        expect(_proxies(), isEmpty);
+      });
+
+      test('manages hit-test proxies independently across multiple FlutterViews, moving platform views, and view removal', () async {
+        final DomElement host2 = createDomElement('div');
+        host2.style
+          ..width = '800px'
+          ..height = '600px';
+        domDocument.body!.append(host2);
+        final view2 = EngineFlutterView(EnginePlatformDispatcher.instance, host2);
+        EnginePlatformDispatcher.instance.viewManager.registerView(view2);
+        addTearDown(() {
+          if (EnginePlatformDispatcher.instance.viewManager[view2.viewId] != null) {
+            EnginePlatformDispatcher.instance.viewManager.disposeAndUnregisterView(view2.viewId);
+          }
+          host2.remove();
+        });
+
+        const pv101 = 101;
+        const pv102 = 102;
+        await createPlatformView(pv101, _platformViewType);
+        await createPlatformView(pv102, _platformViewType);
+
+        ui.Scene buildPvScene(List<(int, ui.Rect)> views, double scaleDpr) {
+          final sb = ui.SceneBuilder();
+          sb.pushOffset(0, 0);
+          for (final (int id, ui.Rect logicalRect) in views) {
+            final ui.Rect physical = _scale(logicalRect, scaleDpr);
+            sb.addPlatformView(
+              id,
+              offset: physical.topLeft,
+              width: physical.width,
+              height: physical.height,
+            );
+          }
+          sb.pop();
+          return sb.build();
+        }
+
+        Future<void> renderViewWithRegions(
+          EngineFlutterView view,
+          ui.Scene scene,
+          Float64List regions,
+        ) async {
+          final Future<void> rendered = renderer.renderScene(scene, view);
+          view.updateHitTestRegions(regions);
+          await rendered;
+        }
+
+        // 1. Render separate platform views and payloads into implicitView and view2.
+        await renderViewWithRegions(
+          implicitView,
+          buildPvScene(<(int, ui.Rect)>[(pv101, _pv1Rect)], dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (pv101, <ui.Rect>[_barrierRect]),
+          ], dpr),
+        );
+        await renderViewWithRegions(
+          view2,
+          buildPvScene(<(int, ui.Rect)>[(pv102, _pv2Rect)], dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (pv102, <ui.Rect>[_dialogRect]),
+          ], dpr),
+        );
+
+        expect(_sceneChildren(implicitView), <String>['pv-$pv101', 'proxy']);
+        expect(_proxies(implicitView), hasLength(1));
+        _expectProxyRect(
+          _proxies(implicitView).single.children.single,
+          _barrierRect,
+          view: implicitView,
+        );
+
+        expect(_sceneChildren(view2), <String>['pv-$pv102', 'proxy']);
+        expect(_proxies(view2), hasLength(1));
+        _expectProxyRect(_proxies(view2).single.children.single, _dialogRect, view: view2);
+
+        // 2. Move pv102 from view2 to implicitView.
+        await renderViewWithRegions(
+          implicitView,
+          buildPvScene(<(int, ui.Rect)>[(pv101, _pv1Rect), (pv102, _pv2Rect)], dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (pv101, <ui.Rect>[_barrierRect]),
+            (pv102, <ui.Rect>[_dialogRect]),
+          ], dpr),
+        );
+        await renderViewWithRegions(
+          view2,
+          buildPvScene(const <(int, ui.Rect)>[], dpr),
+          Float64List(0),
+        );
+
+        expect(_proxies(view2), isEmpty);
+        expect(_sceneChildren(view2), isEmpty);
+        expect(_sceneChildren(implicitView), <String>['pv-$pv101', 'proxy', 'pv-$pv102', 'proxy']);
+        expect(_proxies(implicitView), hasLength(2));
+
+        // 3. Move pv102 back into view2, then simulate removing view2's View widget
+        // (reporting an empty payload to view2 without rendering another scene on view2).
+        await renderViewWithRegions(
+          implicitView,
+          buildPvScene(<(int, ui.Rect)>[(pv101, _pv1Rect)], dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (pv101, <ui.Rect>[_barrierRect]),
+          ], dpr),
+        );
+        await renderViewWithRegions(
+          view2,
+          buildPvScene(<(int, ui.Rect)>[(pv102, _pv2Rect)], dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (pv102, <ui.Rect>[_dialogRect]),
+          ], dpr),
+        );
+        expect(_proxies(view2), hasLength(1));
+
+        view2.updateHitTestRegions(Float64List(0));
+        expect(_proxies(view2), isEmpty);
+        expect(_proxies(implicitView), hasLength(1));
+
+        // 4. Re-render view2 with a proxy, then report a non-empty payload containing
+        // only a zero-rect group ([pv102, 0]) without rendering a new scene ->
+        // view2's proxies are immediately cleared while implicitView's proxy stays intact.
+        await renderViewWithRegions(
+          view2,
+          buildPvScene(<(int, ui.Rect)>[(pv102, _pv2Rect)], dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (pv102, <ui.Rect>[_dialogRect]),
+          ], dpr),
+        );
+        expect(_proxies(view2), hasLength(1));
+
+        view2.updateHitTestRegions(Float64List.fromList(<double>[pv102.toDouble(), 0]));
+        expect(_proxies(view2), isEmpty);
+        expect(_sceneChildren(view2), <String>['pv-$pv102']);
+        expect(_proxies(implicitView), hasLength(1));
+      });
     });
   }
 }
@@ -468,10 +619,11 @@ ui.Rect _scale(ui.Rect rect, double factor) {
   );
 }
 
-DomElement get _fltScene => sceneHost.querySelector('flt-scene')!;
+DomElement _fltSceneOf(EngineFlutterView view) => view.dom.sceneHost.querySelector('flt-scene')!;
 
-/// All `<flt-hit-test-proxy>` elements rendered in the scene.
-List<DomElement> _proxies() => sceneHost.querySelectorAll('flt-hit-test-proxy').toList();
+/// All `<flt-hit-test-proxy>` elements rendered in [view]'s scene.
+List<DomElement> _proxies([EngineFlutterView? view]) =>
+    (view ?? implicitView).dom.sceneHost.querySelectorAll('flt-hit-test-proxy').toList();
 
 /// The only `<flt-hit-test-proxy>` element rendered in the scene.
 DomElement _singleProxy() {
@@ -483,9 +635,9 @@ DomElement _singleProxy() {
 /// Describes the children of `<flt-scene>` that take part in hit testing, in
 /// DOM order: `pv-<id>` for platform views and `proxy` for hit-test proxies.
 /// Canvases are omitted because they never receive pointer events.
-List<String> _sceneChildren() {
+List<String> _sceneChildren([EngineFlutterView? view]) {
   final result = <String>[];
-  for (final DomElement child in _fltScene.children) {
+  for (final DomElement child in _fltSceneOf(view ?? implicitView).children) {
     switch (child.tagName.toLowerCase()) {
       case 'flt-hit-test-proxy':
         result.add('proxy');
@@ -522,9 +674,9 @@ int? _platformViewIdOf(DomElement? element) {
   return null;
 }
 
-/// Converts a point relative to the Flutter view into viewport coordinates.
-ui.Offset _toClient(ui.Offset point) {
-  final DomRect origin = implicitView.dom.rootElement.getBoundingClientRect();
+/// Converts a point relative to [view] into viewport coordinates.
+ui.Offset _toClient(ui.Offset point, {EngineFlutterView? view}) {
+  final DomRect origin = (view ?? implicitView).dom.rootElement.getBoundingClientRect();
   return ui.Offset(origin.left + point.dx, origin.top + point.dy);
 }
 
@@ -534,14 +686,14 @@ DomElement? _elementAt(ui.Offset point) {
   return renderingHost.elementFromPoint(client.dx.round(), client.dy.round());
 }
 
-void _expectProxyRect(DomElement element, ui.Rect expected) {
+void _expectProxyRect(DomElement element, ui.Rect expected, {EngineFlutterView? view}) {
   expect(element.style.left, '${expected.left.round()}px');
   expect(element.style.top, '${expected.top.round()}px');
   expect(element.style.width, '${expected.width.round()}px');
   expect(element.style.height, '${expected.height.round()}px');
 
   final DomRect bounds = element.getBoundingClientRect();
-  final ui.Offset origin = _toClient(ui.Offset.zero);
+  final ui.Offset origin = _toClient(ui.Offset.zero, view: view);
   expect(bounds.left - origin.dx, expected.left);
   expect(bounds.top - origin.dy, expected.top);
   expect(bounds.width, expected.width);
