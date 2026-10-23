@@ -460,6 +460,7 @@ class _RawViewElement extends RenderTreeRootElement {
     onSemanticsOwnerCreated: _handleSemanticsOwnerCreated,
     onSemanticsUpdate: _handleSemanticsUpdate,
     onSemanticsOwnerDisposed: _handleSemanticsOwnerDisposed,
+    onHitTestRegionsUpdate: _handleHitTestRegionsUpdate,
   );
 
   PipelineOwner get _effectivePipelineOwner =>
@@ -475,6 +476,10 @@ class _RawViewElement extends RenderTreeRootElement {
 
   void _handleSemanticsUpdate(SemanticsUpdate update) {
     (widget as _RawViewInternal).view.updateSemantics(update);
+  }
+
+  void _handleHitTestRegionsUpdate(Float64List regions) {
+    (widget as _RawViewInternal).view.updateHitTestRegions(regions);
   }
 
   @override

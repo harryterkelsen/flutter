@@ -97,6 +97,7 @@ export 'engine/platform_dispatcher/system_color_palette_detector.dart';
 export 'engine/platform_dispatcher/view_focus_binding.dart';
 export 'engine/platform_views/content_manager.dart';
 export 'engine/platform_views/embedder.dart';
+export 'engine/platform_views/hit_test_proxies.dart';
 export 'engine/platform_views/message_handler.dart';
 export 'engine/platform_views/slots.dart';
 export 'engine/plugins.dart';
