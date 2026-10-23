@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:test/bootstrap/browser.dart';
@@ -263,6 +264,141 @@ Future<void> testMain() async {
         renderer.debugClear();
         expect(_proxies(), isEmpty);
       });
+
+      test('reuses <flt-hit-test-proxy> and child <div> elements across frames', () async {
+        // Frame 1: render with 2 rects and record the proxy and its 2 child <div> elements.
+        await renderDialogOverPlatformView();
+        final DomElement proxy = _singleProxy();
+        final List<DomElement> frame1Children = proxy.children.toList();
+        expect(frame1Children, hasLength(2));
+        final DomElement child0 = frame1Children[0];
+        final DomElement child1 = frame1Children[1];
+
+        // Frame 2: update with 2 different rect coordinates; proxy and both child <div>
+        // elements are mutated in-place rather than destroyed and recreated.
+        const rectA = ui.Rect.fromLTWH(10, 20, 120, 80);
+        const rectB = ui.Rect.fromLTWH(50, 60, 140, 90);
+        await _renderWithHitTestRegions(
+          _buildDialogScene(dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[rectA, rectB]),
+          ], dpr),
+        );
+        expect(_singleProxy(), proxy);
+        final List<DomElement> frame2Children = proxy.children.toList();
+        expect(frame2Children, hasLength(2));
+        expect(frame2Children[0], child0);
+        expect(frame2Children[1], child1);
+        _expectProxyRect(child0, rectA);
+        _expectProxyRect(child1, rectB);
+
+        // Frame 3: shrink to 1 rect; child0 remains attached.
+        await _renderWithHitTestRegions(
+          _buildDialogScene(dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_dialogRect]),
+          ], dpr),
+        );
+        expect(_singleProxy(), proxy);
+        final List<DomElement> frame3Children = proxy.children.toList();
+        expect(frame3Children, hasLength(1));
+        expect(frame3Children.first, child0);
+        _expectProxyRect(child0, _dialogRect);
+
+        // Frame 4: grow back to 2 rects; child0 stays and child1 is reused from the pool.
+        await _renderWithHitTestRegions(
+          _buildDialogScene(dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_barrierRect, _pv2Rect]),
+          ], dpr),
+        );
+        expect(_singleProxy(), proxy);
+        final List<DomElement> frame4Children = proxy.children.toList();
+        expect(frame4Children, hasLength(2));
+        expect(frame4Children[0], child0);
+        expect(frame4Children[1], child1);
+        _expectProxyRect(child0, _barrierRect);
+        _expectProxyRect(child1, _pv2Rect);
+      });
+
+      test('unchanged payload across frames causes zero DOM mutations', () async {
+        await renderDialogOverPlatformView();
+        final DomElement proxy = _singleProxy();
+
+        final records = <_DomMutationRecord>[];
+        final _DomMutationObserver observer = _createDomMutationObserver(records);
+        addTearDown(() => observer.disconnect());
+        observer.observe(
+          proxy,
+          <String, Object>{'childList': true, 'attributes': true, 'subtree': true}.toJSAnyDeep,
+        );
+
+        // Frame 2: new Float64List with the exact same double values -> zero DOM mutations.
+        await _renderWithHitTestRegions(
+          _buildDialogScene(dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_barrierRect, _dialogRect]),
+            (_pv2, <ui.Rect>[]),
+          ], dpr),
+        );
+        records.addAll(observer.takeRecords());
+        expect(records, isEmpty);
+
+        // Frame 3: updating the second rect in-place mutates only style attributes,
+        // without any childList (node removal/addition) mutations on the proxy.
+        await _renderWithHitTestRegions(
+          _buildDialogScene(dpr),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv1, <ui.Rect>[_barrierRect, _pv2Rect]),
+            (_pv2, <ui.Rect>[]),
+          ], dpr),
+        );
+        records.addAll(observer.takeRecords());
+        expect(records.where((_DomMutationRecord record) => record.type == 'childList'), isEmpty);
+      });
+
+      test('reuses pooled <flt-hit-test-proxy> and child <div> elements across view removal and new view proxy creation', () async {
+        // Frame 1: render PV1 with 2 rects and capture its proxy and child <div> elements.
+        await renderDialogOverPlatformView();
+        final DomElement pv1Proxy = _singleProxy();
+        final List<DomElement> pv1Children = pv1Proxy.children.toList();
+        expect(pv1Children, hasLength(2));
+
+        // Frame 2: remove PV1 from the scene and clear regions so PV1's proxy and
+        // its 2 child <div> elements are released into the pools.
+        final ui.Rect pv2Physical = _scale(_pv2Rect, dpr);
+        ui.Scene buildPv2OnlyScene() {
+          final sb = ui.SceneBuilder();
+          sb.pushOffset(0, 0);
+          sb.addPlatformView(
+            _pv2,
+            offset: pv2Physical.topLeft,
+            width: pv2Physical.width,
+            height: pv2Physical.height,
+          );
+          sb.pop();
+          return sb.build();
+        }
+
+        await _renderWithHitTestRegions(buildPv2OnlyScene(), Float64List(0));
+        expect(_proxies(), isEmpty);
+
+        // Frame 3: render PV2 with 1 rect; the pooled <flt-hit-test-proxy> from PV1
+        // is reused for PV2 with only 1 pooled child <div> attached (no stale rects).
+        await _renderWithHitTestRegions(
+          buildPv2OnlyScene(),
+          _payload(<(int, List<ui.Rect>)>[
+            (_pv2, <ui.Rect>[_pv2Rect]),
+          ], dpr),
+        );
+        expect(_sceneChildren(), <String>['pv-$_pv2', 'proxy']);
+        final DomElement pv2Proxy = _singleProxy();
+        expect(pv2Proxy, pv1Proxy);
+        final List<DomElement> pv2Children = pv2Proxy.children.toList();
+        expect(pv2Children, hasLength(1));
+        expect(pv2Children.single, isIn(pv1Children));
+        _expectProxyRect(pv2Children.single, _pv2Rect);
+      });
     });
   }
 }
@@ -424,4 +560,27 @@ DomPointerEvent _pointerEvent(String type, ui.Offset client, {required int butto
     'clientX': client.dx,
     'clientY': client.dy,
   });
+}
+
+@JS('MutationObserver')
+extension type _DomMutationObserver._(JSObject _) implements JSObject {
+  external _DomMutationObserver(JSFunction callback);
+  external void observe(DomNode target, JSAny options);
+  external void disconnect();
+  @JS('takeRecords')
+  external JSArray<_DomMutationRecord> _takeRecords();
+  List<_DomMutationRecord> takeRecords() => _takeRecords().toDart;
+}
+
+@JS('MutationRecord')
+extension type _DomMutationRecord._(JSObject _) implements JSObject {
+  external String get type;
+}
+
+_DomMutationObserver _createDomMutationObserver(List<_DomMutationRecord> records) {
+  return _DomMutationObserver(
+    (JSArray<_DomMutationRecord> delivered, _DomMutationObserver _) {
+      records.addAll(delivered.toDart);
+    }.toJS,
+  );
 }
