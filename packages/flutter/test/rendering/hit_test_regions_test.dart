@@ -677,19 +677,16 @@ void main() {
     // 10 + 2b), clipped at x = 215, and scaled by the device pixel ratio of 2.
     expect(
       regionsFor(stack),
-      _payload(
-        <(int, List<Rect>)>[
-          (
-            1,
-            <Rect>[
-              const Rect.fromLTRB(30, 20, 50, 40),
-              const Rect.fromLTRB(200, 90, 215, 110),
-              const Rect.fromLTRB(10, 0, 30, 20),
-            ],
-          ),
-        ],
-        scale: 2.0,
-      ),
+      _payload(<(int, List<Rect>)>[
+        (
+          1,
+          <Rect>[
+            const Rect.fromLTRB(30, 20, 50, 40),
+            const Rect.fromLTRB(200, 90, 215, 110),
+            const Rect.fromLTRB(10, 0, 30, 20),
+          ],
+        ),
+      ], scale: 2.0),
     );
   });
 
@@ -703,9 +700,7 @@ void main() {
         RenderStack(
           textDirection: TextDirection.ltr,
           clipBehavior: Clip.none,
-          children: <RenderBox>[
-            _at(const Rect.fromLTWH(50, 60, 100, 100), _hitTarget()),
-          ],
+          children: <RenderBox>[_at(const Rect.fromLTWH(50, 60, 100, 100), _hitTarget())],
         ),
       ),
       // A 50x50 overflow box whose centered 100x100 child paints at
@@ -816,9 +811,7 @@ void main() {
                 const Rect.fromLTWH(25, 25, 50, 50),
                 RenderStack(
                   textDirection: TextDirection.ltr,
-                  children: <RenderBox>[
-                    _at(const Rect.fromLTWH(0, 0, 50, 50), _hitTarget()),
-                  ],
+                  children: <RenderBox>[_at(const Rect.fromLTWH(0, 0, 50, 50), _hitTarget())],
                 ),
               ),
             ],
@@ -846,16 +839,10 @@ void main() {
         // forwards hits without checking its own bounds.
         _at(
           const Rect.fromLTWH(100, 0, 50, 50),
-          RenderFractionalTranslation(
-            translation: const Offset(2.0, 1.0),
-            child: _hitTarget(),
-          ),
+          RenderFractionalTranslation(translation: const Offset(2.0, 1.0), child: _hitTarget()),
         ),
         // A leader at (300, 200) that claims nothing itself.
-        _at(
-          const Rect.fromLTWH(300, 200, 50, 50),
-          RenderLeaderLayer(link: link),
-        ),
+        _at(const Rect.fromLTWH(300, 200, 50, 50), RenderLeaderLayer(link: link)),
         // Laid out at (100, 300, 150, 350), but paints its child at the
         // leader's position offset by (10, 20), that is at (310, 220, 360, 270),
         // where RenderFollowerLayer.hitTest forwards hits without checking its
@@ -874,13 +861,7 @@ void main() {
       expect(
         regionsFor(stack),
         _payload(<(int, List<Rect>)>[
-          (
-            1,
-            <Rect>[
-              const Rect.fromLTWH(200, 50, 50, 50),
-              const Rect.fromLTWH(310, 220, 50, 50),
-            ],
-          ),
+          (1, <Rect>[const Rect.fromLTWH(200, 50, 50, 50), const Rect.fromLTWH(310, 220, 50, 50)]),
         ]),
       );
     },
