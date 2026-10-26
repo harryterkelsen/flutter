@@ -265,6 +265,16 @@ Future<void> testMain() async {
       });
     });
   }
+
+  test('calling updateHitTestRegions on a disposed EngineFlutterView is a no-op', () {
+    final EngineFlutterView view = EngineFlutterView(
+      EnginePlatformDispatcher.instance,
+      createDomHTMLDivElement(),
+    );
+    view.dispose();
+    expect(view.isDisposed, isTrue);
+    expect(() => view.updateHitTestRegions(Float64List(0)), returnsNormally);
+  });
 }
 
 /// Renders [scene] and then reports [regions] to the implicit view, in the same
