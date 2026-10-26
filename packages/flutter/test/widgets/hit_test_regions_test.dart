@@ -843,7 +843,9 @@ void main() {
         _lastRegions(),
         equals(
           c.claims
-              ? <int, Set<Rect>>{1: <Rect>{const Rect.fromLTWH(10, 20, 100, 50)}}
+              ? <int, Set<Rect>>{
+                  1: <Rect>{const Rect.fromLTWH(10, 20, 100, 50)},
+                }
               : <int, Set<Rect>>{1: <Rect>{}},
         ),
         reason: c.description,
