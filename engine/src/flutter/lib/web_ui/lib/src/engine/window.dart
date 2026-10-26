@@ -156,7 +156,11 @@ class EngineFlutterView implements ui.FlutterView {
 
   @override
   void updateHitTestRegions(Float64List regions) {
-    assert(!isDisposed, 'Trying to update hit-test regions on a disposed EngineFlutterView.');
+    if (isDisposed) {
+      // The framework may clear regions while tearing down a view that the
+      // engine has already disposed.
+      return;
+    }
     renderer.rasterizers[viewId]?.viewEmbedder.updateHitTestRegions(regions);
   }
 
