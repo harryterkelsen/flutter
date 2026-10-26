@@ -188,14 +188,16 @@ void main() {
     await tester.pumpWidget(wrapWithView: false, buildView(withPlatformView: true));
     expect(
       tester.view.lastHitTestRegions,
-      equals(Float64List.fromList(<double>[
-        1.0,
-        1.0,
-        10.0 * _devicePixelRatio,
-        20.0 * _devicePixelRatio,
-        110.0 * _devicePixelRatio,
-        70.0 * _devicePixelRatio,
-      ])),
+      equals(
+        Float64List.fromList(<double>[
+          1.0,
+          1.0,
+          10.0 * _devicePixelRatio,
+          20.0 * _devicePixelRatio,
+          110.0 * _devicePixelRatio,
+          70.0 * _devicePixelRatio,
+        ]),
+      ),
     );
 
     await tester.pumpWidget(wrapWithView: false, buildView(withPlatformView: false));
