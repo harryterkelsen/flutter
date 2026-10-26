@@ -1086,7 +1086,7 @@ void main() {
   });
 
   test('RenderIndexedStack contributes only its displayed child', () {
-    final RenderIndexedStack indexedStack = RenderIndexedStack(
+    final indexedStack = RenderIndexedStack(
       textDirection: TextDirection.ltr,
       children: <RenderBox>[
         // Index 0: a hit target over platform view 1.
@@ -1133,7 +1133,7 @@ void main() {
   });
 
   test('RenderFlow children are walked in the order the delegate paints them', () {
-    final RenderFlow flow = RenderFlow(
+    final flow = RenderFlow(
       delegate: const _PaintOrderFlowDelegate(
         // Child 2 is painted first (under the platform view), then the
         // platform view, then child 0 (over the platform view). Child 3 is
