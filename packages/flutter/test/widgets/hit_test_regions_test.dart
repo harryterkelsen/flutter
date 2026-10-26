@@ -47,6 +47,8 @@ Widget _platformView(int viewId) {
   );
 }
 
+Widget _buildPlatformView(int viewId) => _platformView(viewId);
+
 Widget _app(Widget home) {
   return WidgetsApp(
     color: const Color(0xFF000000),
@@ -56,6 +58,18 @@ Widget _app(Widget home) {
     ),
     home: home,
   );
+}
+
+Widget _buildApp(Widget home) => _app(home);
+
+void configureTestView(WidgetTester tester) {
+  tester.view.physicalSize = const Size(800, 600);
+  tester.view.devicePixelRatio = 1.0;
+  addTearDown(() {
+    debugEnableHitTestRegionsOnAllPlatforms = false;
+    RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
+    tester.view.reset();
+  });
 }
 
 class _PaintCounter extends CustomPainter {

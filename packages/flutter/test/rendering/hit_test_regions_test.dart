@@ -586,9 +586,7 @@ void main() {
       ],
     );
 
-    final RenderStack stack = _stack(<RenderBox>[
-      _at(const Rect.fromLTWH(0, 0, 400, 400), flow),
-    ]);
+    final RenderStack stack = _stack(<RenderBox>[_at(const Rect.fromLTWH(0, 0, 400, 400), flow)]);
 
     layout(stack, phase: EnginePhase.composite);
 
