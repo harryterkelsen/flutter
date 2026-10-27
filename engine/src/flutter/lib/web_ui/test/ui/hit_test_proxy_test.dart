@@ -407,6 +407,11 @@ Future<void> testMain() async {
     view.dispose();
     expect(view.isDisposed, isTrue);
     expect(() => view.updateHitTestRegions(Float64List(0)), returnsNormally);
+    expect(
+      () =>
+          view.updateHitTestRegions(Float64List.fromList(<double>[1.0, 1.0, 0.0, 0.0, 10.0, 10.0])),
+      returnsNormally,
+    );
   });
 }
 
