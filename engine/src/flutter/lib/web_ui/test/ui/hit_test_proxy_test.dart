@@ -403,10 +403,7 @@ Future<void> testMain() async {
   }
 
   test('calling updateHitTestRegions on a disposed EngineFlutterView is a no-op', () {
-    final EngineFlutterView view = EngineFlutterView(
-      EnginePlatformDispatcher.instance,
-      createDomHTMLDivElement(),
-    );
+    final view = EngineFlutterView(EnginePlatformDispatcher.instance, createDomHTMLDivElement());
     view.dispose();
     expect(view.isDisposed, isTrue);
     expect(() => view.updateHitTestRegions(Float64List(0)), returnsNormally);
