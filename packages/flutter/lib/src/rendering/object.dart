@@ -1069,6 +1069,9 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// Called with the hit-test regions computed by [flushHitTestRegions] for the
   /// platform views attached to this pipeline owner.
   ///
+  /// Typical implementations forward the regions to
+  /// [FlutterView.updateHitTestRegions].
+  ///
   /// While a platform view with a non-empty size is attached, this is called on
   /// every
   /// [flushHitTestRegions] with the latest payload (even if it is unchanged).
