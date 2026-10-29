@@ -136,7 +136,8 @@ class PlatformViewEmbedder {
   /// rendering, before the frame reaches [submitFrame]. A `<flt-hit-test-proxy>`
   /// element is placed right after each platform view in the scene that has a
   /// non-empty group in [regions]. Groups for platform views that are not in
-  /// the scene are ignored.
+  /// the scene are ignored. If [regions] has no non-empty groups, any existing
+  /// `<flt-hit-test-proxy>` elements for this view are removed immediately.
   ///
   /// See [ui.FlutterView.updateHitTestRegions] for the encoding of [regions].
   void updateHitTestRegions(Float64List regions) {
@@ -148,6 +149,12 @@ class PlatformViewEmbedder {
       for (final HitTestProxyGroup group in decodeHitTestRegions(regions))
         if (group.rects.isNotEmpty) group.viewId: group.rects,
     };
+    if (_hitTestRegions.isEmpty && _hitTestProxies.isNotEmpty) {
+      _hitTestProxies.keys.toList().forEach(_removeHitTestProxy);
+      _activeComposition.entities.removeWhere(
+        (CompositionEntity entity) => entity is CompositionHitTestProxy,
+      );
+    }
   }
 
   /// Inserts a [CompositionHitTestProxy] right after each platform view in
@@ -157,7 +164,7 @@ class PlatformViewEmbedder {
     if (_hitTestRegions.isEmpty) {
       return;
     }
-    final double devicePixelRatio = EngineFlutterDisplay.instance.devicePixelRatio;
+    final double devicePixelRatio = rasterizer.view.devicePixelRatio;
     for (var i = 0; i < composition.entities.length; i++) {
       final CompositionEntity entity = composition.entities[i];
       if (entity is! CompositionPlatformView) {
@@ -351,7 +358,7 @@ class PlatformViewEmbedder {
     //
     // HTML elements use logical (CSS) pixels, but we have been using physical
     // pixels, so scale down the head element to match the logical resolution.
-    final double scale = EngineFlutterDisplay.instance.devicePixelRatio;
+    final double scale = rasterizer.view.devicePixelRatio;
     final double inverseScale = 1 / scale;
     final scaleMatrix = Matrix4.diagonal3Values(inverseScale, inverseScale, 1);
     headTransform = scaleMatrix.multiplied(headTransform);
@@ -500,6 +507,7 @@ class PlatformViewEmbedder {
   void disposeView(int viewId) {
     final ViewClipChain? clipChain = _viewClipChains.remove(viewId);
     clipChain?.root.remove();
+    _removeHitTestProxy(viewId);
     // More cleanup
     _currentCompositionParams.remove(viewId);
     _viewsToRecomposite.remove(viewId);
