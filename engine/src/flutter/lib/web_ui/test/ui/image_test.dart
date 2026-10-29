@@ -190,6 +190,65 @@ Future<void> testMain() async {
     descriptor.dispose();
     imageBuffer.dispose();
   });
+
+  test('upscaling honors each requested dimension independently', () async {
+    final ui.Image image = await _createImage();
+    final ByteData? imageData = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    final Uint8List bytes = imageData!.buffer.asUint8List();
+
+    final cases =
+        <
+          ({
+            String description,
+            Future<ui.Codec> Function(ui.ImmutableBuffer) instantiate,
+            int expectedWidth,
+            int expectedHeight,
+          })
+        >[
+          (
+            description: 'getTargetSize upscales to a non-square size',
+            instantiate: (ui.ImmutableBuffer buffer) => ui.instantiateImageCodecWithSize(
+              buffer,
+              getTargetSize: (int w, int h) => const ui.TargetImageSize(width: 25, height: 15),
+            ),
+            expectedWidth: 25,
+            expectedHeight: 15,
+          ),
+          (
+            description: 'getTargetSize upscales one side and downscales the other',
+            instantiate: (ui.ImmutableBuffer buffer) => ui.instantiateImageCodecWithSize(
+              buffer,
+              getTargetSize: (int w, int h) => const ui.TargetImageSize(width: 25, height: 5),
+            ),
+            expectedWidth: 25,
+            expectedHeight: 5,
+          ),
+          (
+            description: 'ImageDescriptor upscales from targetWidth alone',
+            instantiate: (ui.ImmutableBuffer buffer) async {
+              final ui.ImageDescriptor descriptor = await ui.ImageDescriptor.encoded(buffer);
+              addTearDown(descriptor.dispose);
+              return descriptor.instantiateCodec(targetWidth: 30);
+            },
+            expectedWidth: 30,
+            expectedHeight: 30,
+          ),
+        ];
+
+    for (final c in cases) {
+      final ui.ImmutableBuffer buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
+      final ui.Codec codec = await c.instantiate(buffer);
+      final ui.FrameInfo frameInfo = await codec.getNextFrame();
+
+      expect(frameInfo.image.width, c.expectedWidth, reason: c.description);
+      expect(frameInfo.image.height, c.expectedHeight, reason: c.description);
+
+      frameInfo.image.dispose();
+      codec.dispose();
+      buffer.dispose();
+    }
+  });
 }
 
 Future<ui.Image> _createImage() => _createPicture().toImage(10, 10);
