@@ -955,6 +955,20 @@ abstract class RenderTwoDimensionalViewport extends RenderBox implements RenderA
     // Do not visit children in [_keepAliveBucket].
   }
 
+  // Mirrors [paint]: children in [_keepAliveBucket] are never painted, and
+  // only visible children are painted, in child order.
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    RenderBox? child = _firstChild;
+    while (child != null) {
+      final TwoDimensionalViewportParentData childParentData = parentDataOf(child);
+      if (childParentData.isVisible) {
+        visitor(child);
+      }
+      child = childParentData._nextSibling;
+    }
+  }
+
   @override
   List<DiagnosticsNode> debugDescribeChildren() {
     final debugChildren = <DiagnosticsNode>[
