@@ -43,13 +43,20 @@ List<HitTestProxyGroup> decodeHitTestRegions(Float64List regions) {
   return groups;
 }
 
-/// Creates an empty `<flt-hit-test-proxy>` element.
+final List<DomElement> _proxyElementPool = <DomElement>[];
+final List<DomElement> _rectElementPool = <DomElement>[];
+
+/// Creates an empty `<flt-hit-test-proxy>` element, reusing a pooled element if
+/// available.
 ///
 /// The element covers the whole scene but doesn't receive pointer events
 /// itself. Its children, added by [updateHitTestProxyElement], receive pointer
 /// events in place of the platform views painted below them. The events then
 /// bubble up to the Flutter view, which forwards them to the framework.
 DomElement createHitTestProxyElement() {
+  if (_proxyElementPool.isNotEmpty) {
+    return _proxyElementPool.removeLast();
+  }
   final DomElement element = createDomElement('flt-hit-test-proxy');
   element.style
     ..position = 'absolute'
@@ -62,26 +69,78 @@ DomElement createHitTestProxyElement() {
   return element;
 }
 
+/// Detaches any child rect elements of [element] and returns both the children
+/// and [element] to the hit-test proxy pools for reuse.
+void releaseHitTestProxyElement(DomElement element) {
+  while (element.lastElementChild != null) {
+    final DomElement child = element.lastElementChild!;
+    child.remove();
+    _rectElementPool.add(child);
+  }
+  _proxyElementPool.add(element);
+}
+
+/// Clears the pooled `<flt-hit-test-proxy>` and child `<div>` elements.
+void clearHitTestProxyPool() {
+  _proxyElementPool.clear();
+  _rectElementPool.clear();
+}
+
 final DomEventListener _preventDefaultListener = createDomEventListener((DomEvent event) {
   event.preventDefault();
 });
 
-/// Replaces the children of a `<flt-hit-test-proxy>` [element] with one child
-/// element per rect in [rects].
+DomElement _createOrTakeRectElement() {
+  if (_rectElementPool.isNotEmpty) {
+    return _rectElementPool.removeLast();
+  }
+  final DomElement rectElement = createDomHTMLDivElement();
+  rectElement.style
+    ..position = 'absolute'
+    ..pointerEvents = 'auto';
+  return rectElement;
+}
+
+/// Updates the children of a `<flt-hit-test-proxy>` [element] in-place with one
+/// child element per rect in [rects], reusing existing and pooled `<div>`
+/// elements.
 ///
 /// The [rects] are in physical pixels and are converted to CSS pixels using
 /// [devicePixelRatio].
 void updateHitTestProxyElement(DomElement element, List<ui.Rect> rects, double devicePixelRatio) {
-  element.clearChildren();
-  for (final rect in rects) {
-    final DomElement rectElement = createDomHTMLDivElement();
-    rectElement.style
-      ..position = 'absolute'
-      ..pointerEvents = 'auto'
-      ..left = '${rect.left / devicePixelRatio}px'
-      ..top = '${rect.top / devicePixelRatio}px'
-      ..width = '${rect.width / devicePixelRatio}px'
-      ..height = '${rect.height / devicePixelRatio}px';
-    element.append(rectElement);
+  DomElement? currentChild = element.firstElementChild;
+  for (var i = 0; i < rects.length; i++) {
+    final ui.Rect rect = rects[i];
+    final DomElement rectElement;
+    if (currentChild != null) {
+      rectElement = currentChild;
+      currentChild = currentChild.nextElementSibling;
+    } else {
+      rectElement = _createOrTakeRectElement();
+      element.append(rectElement);
+    }
+    final DomCSSStyleDeclaration style = rectElement.style;
+    final leftCss = '${rect.left / devicePixelRatio}px';
+    final topCss = '${rect.top / devicePixelRatio}px';
+    final widthCss = '${rect.width / devicePixelRatio}px';
+    final heightCss = '${rect.height / devicePixelRatio}px';
+    if (style.left != leftCss) {
+      style.left = leftCss;
+    }
+    if (style.top != topCss) {
+      style.top = topCss;
+    }
+    if (style.width != widthCss) {
+      style.width = widthCss;
+    }
+    if (style.height != heightCss) {
+      style.height = heightCss;
+    }
+  }
+  while (currentChild != null) {
+    final DomElement? next = currentChild.nextElementSibling;
+    currentChild.remove();
+    _rectElementPool.add(currentChild);
+    currentChild = next;
   }
 }
