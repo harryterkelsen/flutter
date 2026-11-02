@@ -50,7 +50,10 @@ class SingleColumnMaterial3Components extends StatelessWidget {
 }
 
 class TwoColumnMaterial3Components extends StatefulWidget {
-  const TwoColumnMaterial3Components({super.key});
+  const TwoColumnMaterial3Components({super.key, this.scrollController});
+
+  /// An optional controller for the first (left) component list.
+  final ScrollController? scrollController;
 
   @override
   State<TwoColumnMaterial3Components> createState() => _TwoColumnMaterial3ComponentsState();
@@ -69,6 +72,7 @@ class _TwoColumnMaterial3ComponentsState extends State<TwoColumnMaterial3Compone
                 showNavBottomBar: true,
                 scaffoldKey: scaffoldKey,
                 showSecondList: true,
+                scrollController: widget.scrollController,
               ),
             ),
             Expanded(child: SecondComponentList(scaffoldKey: scaffoldKey)),
@@ -85,17 +89,22 @@ class FirstComponentList extends StatelessWidget {
     required this.showNavBottomBar,
     required this.scaffoldKey,
     required this.showSecondList,
+    this.scrollController,
   });
 
   final bool showNavBottomBar;
   final GlobalKey<ScaffoldState> scaffoldKey;
   final bool showSecondList;
 
+  /// An optional controller for the list's [ListView].
+  final ScrollController? scrollController;
+
   @override
   Widget build(BuildContext context) {
     // Fully traverse this list before moving on.
     return FocusTraversalGroup(
       child: ListView(
+        controller: scrollController,
         padding: showSecondList
             ? const EdgeInsetsDirectional.only(end: smallSpacing)
             : EdgeInsets.zero,

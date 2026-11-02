@@ -33,6 +33,8 @@ import 'src/web/bench_pageview_scroll_linethrough.dart';
 import 'src/web/bench_paths.dart';
 import 'src/web/bench_picture_recording.dart';
 import 'src/web/bench_platform_view_infinite_scroll.dart';
+import 'src/web/bench_platform_view_over_m3_components.dart';
+import 'src/web/bench_platform_view_under_dense_controls.dart';
 import 'src/web/bench_platform_view_under_m3_components.dart';
 import 'src/web/bench_simple_lazy_text_scroll.dart';
 import 'src/web/bench_text_layout.dart';
@@ -80,6 +82,8 @@ final Map<String, RecorderFactory> benchmarks = <String, RecorderFactory>{
   BenchPlatformViewInfiniteScroll.benchmarkNameBackward: () =>
       BenchPlatformViewInfiniteScroll.backward(),
   BenchPlatformViewUnderM3Components.benchmarkName: () => BenchPlatformViewUnderM3Components(),
+  BenchPlatformViewOverM3Components.benchmarkName: () => BenchPlatformViewOverM3Components(),
+  BenchPlatformViewUnderDenseControls.benchmarkName: () => BenchPlatformViewUnderDenseControls(),
   BenchMaterial3Components.benchmarkName: () => BenchMaterial3Components(),
   BenchMaterial3Semantics.benchmarkName: () => BenchMaterial3Semantics(),
   BenchMaterial3ScrollSemantics.benchmarkName: () => BenchMaterial3ScrollSemantics(),
