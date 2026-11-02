@@ -3,13 +3,11 @@
 // found in the LICENSE file.
 
 import 'dart:async';
-import 'dart:ui_web' as ui_web;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:web/web.dart' as web;
 
+import 'automatic_pointer_interceptors_bench.dart';
 import 'material3.dart' as m3;
 import 'recorder.dart';
 
@@ -18,33 +16,23 @@ const String _viewType = 'bench_platform_view_under_m3_components_view';
 /// Measures frame time when rendering Material 3 components, dialogs, and
 /// sheets stacked above a full-screen platform view with automatic pointer
 /// interceptors enabled.
-class BenchPlatformViewUnderM3Components extends WidgetRecorder {
+///
+/// The platform view is painted first, *behind* the app, and the app's opaque
+/// [Material] covers it. The hit-region walk therefore stops early (about 18
+/// render objects visited per frame). This is the common case, not the worst
+/// case. See `bench_platform_view_over_m3_components` (a platform view painted
+/// after the whole page) and `bench_platform_view_under_dense_controls` (a
+/// platform view under a dense UI with gaps) for the worst cases.
+class BenchPlatformViewUnderM3Components extends WidgetRecorder
+    with AutomaticPointerInterceptorsBench {
   BenchPlatformViewUnderM3Components() : super(name: benchmarkName);
 
   static const String benchmarkName = 'bench_platform_view_under_m3_components';
 
-  static bool _factoryRegistered = false;
-
   @override
   Future<void> setUpAll() async {
     await super.setUpAll();
-    if (!_factoryRegistered) {
-      ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) {
-        final element = web.document.createElement('div') as web.HTMLDivElement;
-        element.style
-          ..width = '100%'
-          ..height = '100%';
-        return element;
-      });
-      _factoryRegistered = true;
-    }
-    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
-  }
-
-  @override
-  Future<void> tearDownAll() async {
-    RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
-    await super.tearDownAll();
+    registerFullSizeDivViewFactory(_viewType);
   }
 
   @override
