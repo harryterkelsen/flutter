@@ -76,7 +76,8 @@ class _PlatformViewUnderDenseControlsApp extends StatelessWidget {
             bottom: 16,
             width: 24,
             height: 24,
-            child: CircularProgressIndicator(),
+            // Keeps the indicator's animation from repainting the controls.
+            child: RepaintBoundary(child: CircularProgressIndicator()),
           ),
         ],
       ),

@@ -17,10 +17,10 @@ const String _viewType = 'bench_platform_view_under_m3_components_view';
 /// sheets stacked above a full-screen platform view with automatic pointer
 /// interceptors enabled.
 ///
-/// The platform view is painted first, *behind* the app, and the app's opaque
-/// [Material] covers it. The hit-region walk therefore stops early (about 18
-/// render objects visited per frame). This is the common case, not the worst
-/// case. See `bench_platform_view_over_m3_components` (a platform view painted
+/// The platform view is painted first, *behind* the app. Content painted after
+/// it soon claims a hit-test region covering the whole platform view, so the
+/// hit-region walk stops early (about 18 render objects visited per frame).
+/// This is the common case, not the worst case. See `bench_platform_view_over_m3_components` (a platform view painted
 /// after the whole page) and `bench_platform_view_under_dense_controls` (a
 /// platform view under a dense UI with gaps) for the worst cases.
 class BenchPlatformViewUnderM3Components extends WidgetRecorder

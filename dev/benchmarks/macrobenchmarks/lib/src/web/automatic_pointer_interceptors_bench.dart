@@ -16,21 +16,22 @@ import 'recorder.dart';
 /// forcing it to `false`, so a benchmark that uses this mixin does not change
 /// the flag for benchmarks that run after it in the same session.
 mixin AutomaticPointerInterceptorsBench on WidgetRecorder {
-  bool? _previous;
+  /// The value of the flag before [setUpAll], restored by [tearDownAll].
+  bool? _previousEnabled;
 
   @override
   Future<void> setUpAll() async {
     await super.setUpAll();
-    _previous = RendererBinding.instance.automaticPointerInterceptorsEnabled;
+    _previousEnabled = RendererBinding.instance.automaticPointerInterceptorsEnabled;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
   }
 
   @override
   Future<void> tearDownAll() async {
-    final bool? previous = _previous;
+    final bool? previous = _previousEnabled;
     if (previous != null) {
       RendererBinding.instance.automaticPointerInterceptorsEnabled = previous;
-      _previous = null;
+      _previousEnabled = null;
     }
     await super.tearDownAll();
   }
