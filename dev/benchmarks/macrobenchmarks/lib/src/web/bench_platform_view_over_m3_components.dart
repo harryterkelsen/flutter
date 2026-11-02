@@ -19,11 +19,15 @@ const String _viewType = 'bench_platform_view_over_m3_components_view';
 ///
 /// The platform view and a small tappable box sit on top of the page, like an
 /// overlay. Because the platform view is painted after everything else, the
-/// hit-region walk cannot stop early: it visits the entire render tree on
-/// every scroll frame. This is a worst case for the walk.
+/// hit-region walk cannot stop early: unless the walk can skip subtrees painted
+/// before the platform view, it visits the entire render tree on every scroll
+/// frame. This is a worst case for the walk.
 ///
 /// The UI is not rebuilt each frame. Frames are driven only by scrolling the
-/// first component list, so the walk is a large share of each frame.
+/// first component list, so the walk is a large share of each frame. The
+/// content under the platform view moves while scrolling, so the hit-test
+/// regions also change on every frame, and the measured cost includes updating
+/// the platform view's hit-test proxies as well as the walk.
 class BenchPlatformViewOverM3Components extends WidgetRecorder
     with AutomaticPointerInterceptorsBench {
   BenchPlatformViewOverM3Components() : super(name: benchmarkName);
@@ -69,7 +73,7 @@ class _PlatformViewOverM3ComponentsAppState extends State<_PlatformViewOverM3Com
   }
 
   void _scroll(Duration elapsed) {
-    if (!_controller.hasClients) {
+    if (!_controller.hasClients || !_controller.position.hasContentDimensions) {
       return;
     }
     final ScrollPosition position = _controller.position;
