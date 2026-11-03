@@ -99,6 +99,11 @@ class SkwasmSurface implements OffscreenSurface {
 
   final OffscreenCanvasProvider _canvasProvider;
 
+  bool _disposed = false;
+
+  @override
+  ui.VoidCallback? onDispose;
+
   @override
   bool get supportsPngEncoding => false;
   late DomOffscreenCanvas _canvas;
@@ -111,6 +116,9 @@ class SkwasmSurface implements OffscreenSurface {
   /// Handles the context lost event by acquiring a new canvas and recreating the
   /// context.
   void onContextLost() {
+    if (_disposed) {
+      return;
+    }
     if (!_initializedCompleter.isCompleted) {
       _initializedCompleter.complete();
     }
@@ -195,6 +203,12 @@ class SkwasmSurface implements OffscreenSurface {
 
   @override
   void dispose() {
+    if (_disposed) {
+      return;
+    }
+    _disposed = true;
+    onDispose?.call();
+    onDispose = null;
     surfaceDestroy(handle);
   }
 
@@ -236,6 +250,9 @@ class SkwasmSurface implements OffscreenSurface {
 
   @override
   Future<void> recreateContextForCanvas(DomEventTarget newCanvas) async {
+    if (_disposed) {
+      return;
+    }
     _canvas = newCanvas as DomOffscreenCanvas;
     _initialize();
     await initialized;
