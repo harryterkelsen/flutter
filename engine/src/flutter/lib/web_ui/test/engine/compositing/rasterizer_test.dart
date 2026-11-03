@@ -237,37 +237,15 @@ void testMain() {
         createDomElement('test-view'),
       );
       EnginePlatformDispatcher.instance.viewManager.registerView(testView);
-      testView.debugPhysicalSizeOverride = const ui.Size(0.4, 100);
-      testView.debugForceResize();
-      expect(testView.physicalSize.isEmpty, isFalse);
 
       final viewRasterizer = SizeRecordingViewRasterizer(testView);
       addTearDown(viewRasterizer.dispose);
 
-      final pictureRecorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(pictureRecorder);
-      canvas.drawRect(
-        const ui.Rect.fromLTWH(0, 0, 50, 50),
-        ui.Paint()..color = const ui.Color(0xff00ff00),
-      );
-      final builder = ui.SceneBuilder();
-      builder.addPicture(ui.Offset.zero, pictureRecorder.endRecording());
-      final scene = builder.build() as LayerScene;
-
-      final timingRecorder = FrameTimingRecorder();
-      await viewRasterizer.draw(scene.layerTree, timingRecorder);
-
-      expect(viewRasterizer.preparedSizes, isEmpty);
-      expect(viewRasterizer.rasterizeCount, 0);
-      expect(viewRasterizer.currentFrameSize, BitmapSize.zero);
-      // Build and raster timings were each recorded exactly once, so the
-      // frame timing can be submitted.
-      expect(timingRecorder.submitTimings, returnsNormally);
-
-      // Later frames are skipped only when the rounded size is empty, and a
-      // skipped frame keeps the size of the last drawn frame.
+      // Frames are skipped only when the rounded size is empty, and a skipped
+      // frame keeps the size of the last drawn frame.
       final expectedPreparedSizes = <BitmapSize>[];
       for (final (ui.Size physicalSize, BitmapSize? expectedFrameSize) in <(ui.Size, BitmapSize?)>[
+        (const ui.Size(0.4, 100), null),
         (const ui.Size(100, 0.4), null),
         (const ui.Size(0.6, 100.4), const BitmapSize(1, 100)),
         (const ui.Size(0.4, 0.4), null),
@@ -293,6 +271,8 @@ void testMain() {
         if (expectedFrameSize != null) {
           expectedPreparedSizes.add(expectedFrameSize);
         } else {
+          // Build and raster timings were each recorded exactly once, so the
+          // frame timing can be submitted.
           expect(frameTimingRecorder.submitTimings, returnsNormally, reason: '$physicalSize');
         }
         expect(viewRasterizer.preparedSizes, expectedPreparedSizes, reason: '$physicalSize');
