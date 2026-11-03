@@ -131,6 +131,7 @@ class CkPicture implements LayerPicture, StackTraceDebugger {
     ui.TargetPixelFormat targetFormat = ui.TargetPixelFormat.dontCare,
   }) {
     assert(debugCheckNotDisposed('Cannot convert picture to image.'));
+    // Mirrors the dimension validation of the native `Picture.toImageSync`.
     if (width <= 0 || height <= 0) {
       throw Exception('Invalid image dimensions.');
     }
@@ -196,11 +197,17 @@ class CkPicture implements LayerPicture, StackTraceDebugger {
         rethrow;
       }
     } on Error {
+      // Dart errors and exceptions (including the StateErrors thrown above)
+      // propagate unchanged. Only non-Dart values thrown by CanvasKit are
+      // wrapped, so callers never observe a bare JavaScript value.
       rethrow;
     } on Exception {
       rethrow;
-    } catch (error) {
-      throw StateError('Failed to render picture to image: ${_describeJsError(error)}');
+    } catch (error, stackTrace) {
+      Error.throwWithStackTrace(
+        StateError('Failed to render picture to image: ${_describeJsError(error)}'),
+        stackTrace,
+      );
     }
     return EngineImage(CkImageDelegate(rasterImage), rasterWidth, rasterHeight);
   }
