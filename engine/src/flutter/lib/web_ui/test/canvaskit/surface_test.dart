@@ -539,41 +539,53 @@ void testMain() {
           snapshot1.delete();
         }
 
-        // Zero dimension boundary: 0x0 is clamped to 1x1.
-        surface.setSize(BitmapSize.zero);
-        expect(
-          surface.supportsWebGl,
-          isTrue,
-          reason: 'Sizing to 0x0 must not poison the surface into software fallback',
-        );
-        final zeroSizedCanvas = surface.canvas as DomOffscreenCanvas;
-        expect(zeroSizedCanvas.width, 1);
-        expect(zeroSizedCanvas.height, 1);
-        final recorder0 = ui.PictureRecorder();
-        final canvas0 = ui.Canvas(recorder0);
-        final paint0 = ui.Paint()..color = const ui.Color(0xFF00FF00);
-        canvas0.drawRect(ui.Rect.zero, paint0);
-        final ui.Picture picture0 = recorder0.endRecording();
-        addTearDown(picture0.dispose);
-        await surface.rasterizeToCanvas(picture0);
-        expect(surface.skSurface, isNotNull);
+        // Empty and negative sizes are rejected before touching the canvas,
+        // the SkSurface, or the WebGL state.
+        surface.setSize(const BitmapSize(10, 10));
+        expect(surface.supportsWebGl, isTrue);
+        final DomEventTarget canvasBefore = surface.canvas;
+        final SkSurface? skSurfaceBefore = surface.skSurface;
+        expect(skSurfaceBefore, isNotNull);
 
-        final SkImage snapshot0 = surface.skSurface!.makeImageSnapshot()!;
-        try {
-          expect(snapshot0.width(), 1);
-          expect(snapshot0.height(), 1);
-        } finally {
-          snapshot0.delete();
+        for (final emptySize in <BitmapSize>[
+          BitmapSize.zero,
+          const BitmapSize(0, 10),
+          const BitmapSize(10, 0),
+          const BitmapSize(-5, -3),
+        ]) {
+          expect(
+            () => surface.setSize(emptySize),
+            throwsA(isA<ArgumentError>()),
+            reason: 'setSize($emptySize) should be rejected',
+          );
+          expect(surface.supportsWebGl, isTrue, reason: 'after setSize($emptySize)');
+          expect(
+            identical(surface.canvas, canvasBefore),
+            isTrue,
+            reason: 'after setSize($emptySize)',
+          );
+          expect(
+            identical(surface.skSurface, skSurfaceBefore),
+            isTrue,
+            reason: 'after setSize($emptySize)',
+          );
+          expect((surface.canvas as DomOffscreenCanvas).width, 10);
+          expect((surface.canvas as DomOffscreenCanvas).height, 10);
+          expect(surface.skSurface!.width(), 10);
+          expect(surface.skSurface!.height(), 10);
         }
-        expect(surface.supportsWebGl, isTrue);
 
-        // Negative dimensions are clamped per axis.
-        expect(() => surface.setSize(const BitmapSize(-5, 10)), returnsNormally);
+        // The surface still rasterizes at its previous size.
+        final recorder10 = ui.PictureRecorder();
+        final canvas10 = ui.Canvas(recorder10);
+        final paint10 = ui.Paint()..color = const ui.Color(0xFF00FF00);
+        canvas10.drawRect(const ui.Rect.fromLTWH(0, 0, 10, 10), paint10);
+        final ui.Picture picture10 = recorder10.endRecording();
+        addTearDown(picture10.dispose);
+        await surface.rasterizeToCanvas(picture10);
         expect(surface.supportsWebGl, isTrue);
-        final negativeSizedCanvas = surface.canvas as DomOffscreenCanvas;
-        expect(negativeSizedCanvas.width, 1);
-        expect(negativeSizedCanvas.height, 10);
-
+        expect(surface.skSurface!.width(), 10);
+        expect(surface.skSurface!.height(), 10);
         surface.dispose();
       });
 
