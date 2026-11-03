@@ -263,6 +263,50 @@ void testMain() {
       // Build and raster timings were each recorded exactly once, so the
       // frame timing can be submitted.
       expect(timingRecorder.submitTimings, returnsNormally);
+
+      // Later frames are skipped only when the rounded size is empty, and a
+      // skipped frame keeps the size of the last drawn frame.
+      final expectedPreparedSizes = <BitmapSize>[];
+      for (final (ui.Size physicalSize, BitmapSize? expectedFrameSize) in <(ui.Size, BitmapSize?)>[
+        (const ui.Size(100, 0.4), null),
+        (const ui.Size(0.6, 100.4), const BitmapSize(1, 100)),
+        (const ui.Size(0.4, 0.4), null),
+        (const ui.Size(100, 50), const BitmapSize(100, 50)),
+        (const ui.Size(0.4, 50), null),
+      ]) {
+        testView.debugPhysicalSizeOverride = physicalSize;
+        testView.debugForceResize();
+        expect(testView.physicalSize.isEmpty, isFalse);
+
+        final frameRecorder = ui.PictureRecorder();
+        ui.Canvas(frameRecorder).drawRect(
+          const ui.Rect.fromLTWH(0, 0, 50, 50),
+          ui.Paint()..color = const ui.Color(0xff00ff00),
+        );
+        final frameBuilder = ui.SceneBuilder();
+        frameBuilder.addPicture(ui.Offset.zero, frameRecorder.endRecording());
+        final frameScene = frameBuilder.build() as LayerScene;
+
+        final frameTimingRecorder = FrameTimingRecorder();
+        await viewRasterizer.draw(frameScene.layerTree, frameTimingRecorder);
+
+        if (expectedFrameSize != null) {
+          expectedPreparedSizes.add(expectedFrameSize);
+        } else {
+          expect(frameTimingRecorder.submitTimings, returnsNormally, reason: '$physicalSize');
+        }
+        expect(viewRasterizer.preparedSizes, expectedPreparedSizes, reason: '$physicalSize');
+        expect(
+          viewRasterizer.rasterizeCount,
+          expectedPreparedSizes.length,
+          reason: '$physicalSize',
+        );
+        expect(
+          viewRasterizer.currentFrameSize,
+          expectedPreparedSizes.isEmpty ? BitmapSize.zero : expectedPreparedSizes.last,
+          reason: '$physicalSize',
+        );
+      }
     });
   });
 }
