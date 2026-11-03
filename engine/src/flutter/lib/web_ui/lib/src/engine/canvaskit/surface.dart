@@ -358,8 +358,13 @@ abstract class CkSurface extends Surface {
 
   double _currentDevicePixelRatio = -1;
 
+  /// Throws an [ArgumentError] if [size] is empty, before touching any canvas
+  /// or GL state, so bad input never degrades WebGL to software rendering.
   @override
   void setSize(BitmapSize size) {
+    if (size.width <= 0 || size.height <= 0) {
+      throw ArgumentError.value(size, 'size', 'must be non-empty');
+    }
     final double devicePixelRatio = EngineFlutterDisplay.instance.devicePixelRatio;
     // A zero-sized canvas cannot back a WebGL SkSurface and would force the
     // surface into a permanent software fallback, so never go below 1x1.
