@@ -82,6 +82,40 @@ class TestViewRasterizer extends ViewRasterizer {
   }
 }
 
+/// A [ViewRasterizer] that uses the real [ViewRasterizer.draw] and records the
+/// frame sizes it is asked to prepare surfaces for.
+class SizeRecordingViewRasterizer extends ViewRasterizer {
+  SizeRecordingViewRasterizer(super.view);
+
+  final List<BitmapSize> preparedSizes = <BitmapSize>[];
+  int rasterizeCount = 0;
+
+  @override
+  final DisplayCanvasFactory<RenderCanvas> displayFactory = DisplayCanvasFactory<RenderCanvas>(
+    createCanvas: () => RenderCanvas(),
+  );
+
+  @override
+  Future<void> prepareToDraw() {
+    // Stands in for the surface `setSize(currentFrameSize)` call made by the
+    // production view rasterizers.
+    preparedSizes.add(currentFrameSize);
+    return Future<void>.value();
+  }
+
+  @override
+  Future<void> rasterize(
+    List<DisplayCanvas> displayCanvases,
+    List<ui.Picture> pictures,
+    FrameTimingRecorder? recorder,
+  ) {
+    rasterizeCount++;
+    recorder?.recordRasterStart();
+    recorder?.recordRasterFinish();
+    return Future<void>.value();
+  }
+}
+
 void testMain() {
   group('Rasterizer', () {
     setUpUnitTests();
@@ -195,6 +229,40 @@ void testMain() {
       expect(treesRenderedInView3.length, 2);
       expect(treesRenderedInView3.first, treesToRenderInView3.first);
       expect(treesRenderedInView3.last, treesToRenderInView3.last);
+    });
+
+    test('skips frames whose physical size rounds to an empty bitmap', () async {
+      final testView = EngineFlutterView(
+        EnginePlatformDispatcher.instance,
+        createDomElement('test-view'),
+      );
+      EnginePlatformDispatcher.instance.viewManager.registerView(testView);
+      testView.debugPhysicalSizeOverride = const ui.Size(0.4, 100);
+      testView.debugForceResize();
+      expect(testView.physicalSize.isEmpty, isFalse);
+
+      final viewRasterizer = SizeRecordingViewRasterizer(testView);
+      addTearDown(viewRasterizer.dispose);
+
+      final pictureRecorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(pictureRecorder);
+      canvas.drawRect(
+        const ui.Rect.fromLTWH(0, 0, 50, 50),
+        ui.Paint()..color = const ui.Color(0xff00ff00),
+      );
+      final builder = ui.SceneBuilder();
+      builder.addPicture(ui.Offset.zero, pictureRecorder.endRecording());
+      final scene = builder.build() as LayerScene;
+
+      final timingRecorder = FrameTimingRecorder();
+      await viewRasterizer.draw(scene.layerTree, timingRecorder);
+
+      expect(viewRasterizer.preparedSizes, isEmpty);
+      expect(viewRasterizer.rasterizeCount, 0);
+      expect(viewRasterizer.currentFrameSize, BitmapSize.zero);
+      // Build and raster timings were each recorded exactly once, so the
+      // frame timing can be submitted.
+      expect(timingRecorder.submitTimings, returnsNormally);
     });
   });
 }
