@@ -51,26 +51,10 @@ void testMain() {
       final ui.Picture picture = _createSolidGreenPicture();
 
       CkSurface.debugForceGLFailure = true;
-      canvasKit['MakeSWCanvasSurface'] = _jsThrowStringFunction(
-        'Canvas with id [object OffscreenCanvas] was not found',
-      );
+      canvasKit['MakeSWCanvasSurface'] = _jsThrowStringFunction(_canvasNotFoundMessage);
       resetPictureToImageSurface();
 
-      Object? surfaceFailureThrown;
-      try {
-        picture.toImageSync(1, 1);
-      } catch (error) {
-        surfaceFailureThrown = error;
-      }
-      expect(surfaceFailureThrown, isA<Error>());
-      expect(
-        surfaceFailureThrown,
-        isA<StateError>().having(
-          (StateError error) => error.message,
-          'message',
-          contains('Canvas with id [object OffscreenCanvas] was not found'),
-        ),
-      );
+      expect(() => picture.toImageSync(1, 1), _throwsStateError(contains(_canvasNotFoundMessage)));
 
       // Restore surface creation and verify bare JS throws inside toImageSync
       // itself are wrapped in a Dart StateError rather than leaking out raw.
@@ -78,50 +62,24 @@ void testMain() {
       CkSurface.debugForceGLFailure = false;
       resetPictureToImageSurface();
 
-      canvasKit['MakeImage'] = _jsThrowStringFunction(
-        'Canvas with id [object OffscreenCanvas] was not found',
-      );
+      canvasKit['MakeImage'] = _jsThrowStringFunction(_canvasNotFoundMessage);
 
-      Object? makeImageThrown;
-      try {
-        picture.toImageSync(4, 4);
-      } catch (error) {
-        makeImageThrown = error;
-      }
-      expect(makeImageThrown, isA<Error>());
       expect(
-        makeImageThrown,
-        isA<StateError>().having(
-          (StateError error) => error.message,
-          'message',
-          allOf(
-            contains('Failed to render picture to image:'),
-            contains('Canvas with id [object OffscreenCanvas] was not found'),
-          ),
+        () => picture.toImageSync(4, 4),
+        _throwsStateError(
+          allOf(contains('Failed to render picture to image:'), contains(_canvasNotFoundMessage)),
         ),
       );
 
       await expectLater(
         picture.toImage(4, 4),
-        throwsA(
-          isA<StateError>().having(
-            (StateError error) => error.message,
-            'message',
-            contains('Failed to render picture to image:'),
-          ),
-        ),
+        _throwsStateError(contains('Failed to render picture to image:')),
       );
 
       canvasKit['MakeImage'] = _jsThrowExpressionFunction('({code: 500})');
       expect(
         () => picture.toImageSync(4, 4),
-        throwsA(
-          isA<StateError>().having(
-            (StateError error) => error.message,
-            'message',
-            contains('Failed to render picture to image:'),
-          ),
-        ),
+        _throwsStateError(contains('Failed to render picture to image:')),
       );
     });
 
@@ -129,9 +87,7 @@ void testMain() {
       final ui.Picture picture = _createSolidGreenPicture();
 
       CkSurface.debugForceGLFailure = true;
-      canvasKit['MakeSWCanvasSurface'] = _jsThrowStringFunction(
-        'Canvas with id [object OffscreenCanvas] was not found',
-      );
+      canvasKit['MakeSWCanvasSurface'] = _jsThrowStringFunction(_canvasNotFoundMessage);
       resetPictureToImageSurface();
 
       expect(() => picture.toImageSync(4, 4), throwsStateError);
@@ -162,14 +118,10 @@ void testMain() {
 
       expect(
         () => picture.toImageSync(6, 6),
-        throwsA(
-          isA<StateError>().having(
-            (StateError error) => error.message,
-            'message',
-            allOf(
-              contains('Failed to render picture to image:'),
-              contains('Transient MakeImage failure'),
-            ),
+        _throwsStateError(
+          allOf(
+            contains('Failed to render picture to image:'),
+            contains('Transient MakeImage failure'),
           ),
         ),
       );
@@ -194,28 +146,18 @@ void testMain() {
         expect(thrown, isA<Exception>(), reason: 'Expected Exception for ${width}x$height');
         expect(thrown, isNot(isA<Error>()), reason: 'Must not wrap in Error for ${width}x$height');
         expect(thrown.toString(), contains('Invalid image dimensions.'));
-      }
 
-      await expectLater(
-        picture.toImage(0, 0),
-        throwsA(
-          isA<Exception>().having(
-            (Exception error) => error.toString(),
-            'toString()',
-            contains('Invalid image dimensions.'),
+        await expectLater(
+          picture.toImage(width, height),
+          throwsA(
+            isA<Exception>().having(
+              (Exception error) => error.toString(),
+              'toString()',
+              contains('Invalid image dimensions.'),
+            ),
           ),
-        ),
-      );
-      await expectLater(
-        picture.toImage(-1, 10),
-        throwsA(
-          isA<Exception>().having(
-            (Exception error) => error.toString(),
-            'toString()',
-            contains('Invalid image dimensions.'),
-          ),
-        ),
-      );
+        );
+      }
 
       // Standard Dart Exceptions and Errors thrown inside toImageSync propagate unwrapped.
       JSAny? throwFormatException(JSAny? info, JSAny? pixels, JSAny? rowBytes) =>
@@ -314,16 +256,7 @@ void testMain() {
           throw StateError('readPixels aborted');
       currentReadPixelsOverride = throwReadPixelsStateError.toJS;
 
-      expect(
-        () => picture.toImageSync(4, 4),
-        throwsA(
-          isA<StateError>().having(
-            (StateError error) => error.message,
-            'message',
-            'readPixels aborted',
-          ),
-        ),
-      );
+      expect(() => picture.toImageSync(4, 4), _throwsStateError('readPixels aborted'));
       expect(deleteCallCount, 1);
       expect(capturedSnapshot!.isDeleted(), isTrue);
 
@@ -335,13 +268,7 @@ void testMain() {
 
       expect(
         () => picture.toImageSync(4, 4),
-        throwsA(
-          isA<StateError>().having(
-            (StateError error) => error.message,
-            'message',
-            'Unable to convert read pixels from SkImage.',
-          ),
-        ),
+        _throwsStateError('Unable to convert read pixels from SkImage.'),
       );
       expect(deleteCallCount, 1);
       expect(capturedSnapshot!.isDeleted(), isTrue);
@@ -610,7 +537,7 @@ void testMain() {
     );
 
     test(
-      'isolates shared pictureToImageSurface across concurrent toImage calls and non-square sizes',
+      'isolates shared pictureToImageSurface across interleaved toImage calls and non-square sizes',
       () async {
         final magentaRecorder = ui.PictureRecorder();
         ui.Canvas(magentaRecorder).drawPaint(ui.Paint()..color = const ui.Color(0xFFFF00FF));
@@ -697,6 +624,8 @@ void testMain() {
     );
   });
 }
+
+const String _canvasNotFoundMessage = 'Canvas with id [object OffscreenCanvas] was not found';
 
 Matcher _throwsStateError(Object messageMatcher) {
   return throwsA(
