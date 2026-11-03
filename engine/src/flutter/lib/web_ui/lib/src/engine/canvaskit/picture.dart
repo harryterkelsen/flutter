@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:ui/ui.dart' as ui;
@@ -130,40 +131,78 @@ class CkPicture implements LayerPicture, StackTraceDebugger {
     ui.TargetPixelFormat targetFormat = ui.TargetPixelFormat.dontCare,
   }) {
     assert(debugCheckNotDisposed('Cannot convert picture to image.'));
-
-    final CkSurface surface = CanvasKitRenderer.instance.pictureToImageSurface;
-    surface.setSize(BitmapSize(width, height));
-    final SkSurface skiaSurface = surface.skSurface!;
-
-    final ckCanvas = CkCanvas.fromSkCanvas(skiaSurface.getCanvas());
-    ckCanvas.clear(const ui.Color(0x00000000));
-    ckCanvas.drawPicture(this);
-    final SkImage skImage = skiaSurface.makeImageSnapshot();
-
-    // TODO(hterkelsen): This is a hack to get the pixels from the SkImage.
-    // We should be able to do this without creating a new image. This is
-    // a workaround for a bug in CanvasKit.
-    final imageInfo = SkImageInfo(
-      alphaType: canvasKit.AlphaType.Premul,
-      colorType: canvasKit.ColorType.RGBA_8888,
-      colorSpace: SkColorSpaceSRGB,
-      width: width.toDouble(),
-      height: height.toDouble(),
-    );
-    final Uint8List? pixels = skImage.readPixels(0, 0, imageInfo);
-    skImage.delete();
-    if (pixels == null) {
-      throw StateError('Unable to convert read pixels from SkImage.');
+    if (width <= 0 || height <= 0) {
+      throw Exception('Invalid image dimensions.');
     }
-    final SkImage? rasterImage = canvasKit.MakeImage(imageInfo, pixels, 4 * width);
-    if (rasterImage == null) {
-      throw StateError('Unable to convert image pixels into SkImage.');
+
+    final SkImage? rasterImage;
+    final int rasterWidth;
+    final int rasterHeight;
+    try {
+      final CkSurface surface = CanvasKitRenderer.instance.pictureToImageSurface;
+      surface.setSize(BitmapSize(width, height));
+      final SkSurface? skiaSurface = surface.skSurface;
+      if (skiaSurface == null) {
+        throw StateError('Failed to create SkSurface for picture-to-image conversion.');
+      }
+
+      final ckCanvas = CkCanvas.fromSkCanvas(skiaSurface.getCanvas());
+      ckCanvas.clear(const ui.Color(0x00000000));
+      ckCanvas.drawPicture(this);
+      final SkImage? skImage = skiaSurface._makeImageSnapshot();
+      if (skImage == null) {
+        throw StateError('Unable to create image snapshot from SkSurface.');
+      }
+
+      // TODO(hterkelsen): This is a hack to get the pixels from the SkImage.
+      // We should be able to do this without creating a new image. This is
+      // a workaround for a bug in CanvasKit.
+      final SkImageInfo imageInfo;
+      final Uint8List? pixels;
+      try {
+        imageInfo = SkImageInfo(
+          alphaType: canvasKit.AlphaType.Premul,
+          colorType: canvasKit.ColorType.RGBA_8888,
+          colorSpace: SkColorSpaceSRGB,
+          width: width.toDouble(),
+          height: height.toDouble(),
+        );
+        pixels = skImage.readPixels(0, 0, imageInfo);
+      } catch (_) {
+        try {
+          skImage.delete();
+        } catch (_) {
+          // Preserve the primary failure if snapshot deletion also throws.
+        }
+        rethrow;
+      }
+      skImage.delete();
+      if (pixels == null) {
+        throw StateError('Unable to convert read pixels from SkImage.');
+      }
+      rasterImage = canvasKit.MakeImage(imageInfo, pixels, 4 * width);
+      if (rasterImage == null) {
+        throw StateError('Unable to convert image pixels into SkImage.');
+      }
+      try {
+        rasterWidth = rasterImage.width().toInt();
+        rasterHeight = rasterImage.height().toInt();
+      } catch (_) {
+        try {
+          rasterImage.delete();
+        } catch (_) {
+          // Preserve the primary failure if image deletion also throws.
+        }
+        rethrow;
+      }
+    } on Error {
+      rethrow;
+    } on Exception {
+      rethrow;
+    } catch (error) {
+      throw StateError('Failed to render picture to image: ${_describeJsError(error)}');
     }
-    return EngineImage(
-      CkImageDelegate(rasterImage),
-      rasterImage.width().toInt(),
-      rasterImage.height().toInt(),
-    );
+    return EngineImage(CkImageDelegate(rasterImage), rasterWidth, rasterHeight);
   }
 
   @override
@@ -185,4 +224,20 @@ class CkPicture implements LayerPicture, StackTraceDebugger {
 
   @override
   bool get isDisposed => _isDisposed;
+}
+
+/// Nullable binding for `SkSurface.makeImageSnapshot`, which returns `null` if
+/// Skia snapshot creation fails despite the non-nullable declaration in
+/// `canvaskit_api.dart`.
+extension _SkSurfaceSnapshotExtension on SkSurface {
+  @JS('makeImageSnapshot')
+  external SkImage? _makeImageSnapshot();
+}
+
+String _describeJsError(Object? error) {
+  try {
+    return error.toString();
+  } catch (_) {
+    return '<unprintable JavaScript error>';
+  }
 }
