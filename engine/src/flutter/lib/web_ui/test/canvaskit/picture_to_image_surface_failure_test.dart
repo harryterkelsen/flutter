@@ -349,7 +349,359 @@ void testMain() {
       skiaSurface['makeImageSnapshot'] = originalMakeImageSnapshot;
       await _expectSolidGreenImage(picture.toImageSync(4, 4), width: 4, height: 4);
     });
+
+    test(
+      'wraps null snapshots, null MakeImage returns, and unprintable or primitive JS throws',
+      () async {
+        final ui.Picture picture = _createSolidGreenPicture();
+        picture.toImageSync(4, 4).dispose();
+
+        final SkSurface skiaSurface = CanvasKitRenderer.instance.pictureToImageSurface.skSurface!;
+        final JSAny? originalMakeImageSnapshot = skiaSurface['makeImageSnapshot'];
+        addTearDown(() => skiaSurface['makeImageSnapshot'] = originalMakeImageSnapshot);
+
+        JSAny? returnNullSnapshot() => null;
+        skiaSurface['makeImageSnapshot'] = returnNullSnapshot.toJS;
+        expect(
+          () => picture.toImageSync(4, 4),
+          _throwsStateError('Unable to create image snapshot from SkSurface.'),
+        );
+        await expectLater(
+          picture.toImage(4, 4),
+          _throwsStateError('Unable to create image snapshot from SkSurface.'),
+        );
+        skiaSurface['makeImageSnapshot'] = originalMakeImageSnapshot;
+
+        JSAny? returnNullRasterImage(JSAny? a, JSAny? b, JSAny? c) => null;
+        canvasKit['MakeImage'] = returnNullRasterImage.toJS;
+        expect(
+          () => picture.toImageSync(4, 4),
+          _throwsStateError('Unable to convert image pixels into SkImage.'),
+        );
+
+        const exoticJsThrows = <(String, String)>[
+          ('Object.create(null)', '<unprintable JavaScript error>'),
+          ('({toString() { throw "unprintable"; }})', '<unprintable JavaScript error>'),
+          ('42', '42'),
+          ('false', 'false'),
+          ('new Error("Embind BindingError")', 'Embind BindingError'),
+        ];
+        for (final (String jsExpr, String expectedDetail) in exoticJsThrows) {
+          canvasKit['MakeImage'] = _jsThrowExpressionFunction(jsExpr);
+          expect(
+            () => picture.toImageSync(4, 4),
+            _throwsStateError(
+              allOf(contains('Failed to render picture to image:'), contains(expectedDetail)),
+            ),
+            reason: 'Expected wrapped StateError for JS throw: $jsExpr',
+          );
+        }
+
+        for (final jsNullish in const <String>['null', 'undefined']) {
+          canvasKit['MakeImage'] = _jsThrowExpressionFunction(jsNullish);
+          expect(
+            () => picture.toImageSync(4, 4),
+            throwsA(
+              allOf(
+                anyOf(isA<Error>(), isA<Exception>()),
+                predicate((Object? e) => e.toString().contains('Throw of null')),
+              ),
+            ),
+          );
+        }
+
+        canvasKit['MakeImage'] = originalMakeImage;
+        await _expectSolidGreenImage(picture.toImageSync(4, 4), width: 4, height: 4);
+      },
+    );
+
+    test('preserves primary readPixels failure when snapshot delete throws and wraps standalone delete throws', () async {
+      final ui.Picture picture = _createSolidGreenPicture();
+      picture.toImageSync(4, 4).dispose();
+
+      final SkSurface skiaSurface = CanvasKitRenderer.instance.pictureToImageSurface.skSurface!;
+      final originalMakeImageSnapshot = skiaSurface['makeImageSnapshot']! as JSFunction;
+      final snapshotsToCleanUp = <(SkImage, JSFunction)>[];
+      var deleteCallCount = 0;
+      var makeImageCalled = false;
+      JSFunction? currentReadPixelsOverride;
+      late JSFunction currentDeleteBehavior;
+
+      addTearDown(() {
+        skiaSurface['makeImageSnapshot'] = originalMakeImageSnapshot;
+        for (final (SkImage snapshot, JSFunction originalDelete) in snapshotsToCleanUp) {
+          if (!snapshot.isDeleted()) {
+            originalDelete.callAsFunction(snapshot);
+          }
+        }
+      });
+
+      skiaSurface['makeImageSnapshot'] = (() {
+        final snapshot = originalMakeImageSnapshot.callAsFunction(skiaSurface)! as SkImage;
+        final originalDelete = snapshot['delete']! as JSFunction;
+        snapshotsToCleanUp.add((snapshot, originalDelete));
+        snapshot['delete'] = (() {
+          deleteCallCount++;
+          originalDelete.callAsFunction(snapshot);
+          currentDeleteBehavior.callAsFunction();
+        }).toJS;
+        if (currentReadPixelsOverride != null) {
+          snapshot['readPixels'] = currentReadPixelsOverride;
+        }
+        return snapshot;
+      }).toJS;
+
+      currentDeleteBehavior = _jsThrowStringFunction('secondary snapshot delete failure');
+      currentReadPixelsOverride = _jsThrowStringFunction('primary readPixels failure');
+      expect(
+        () => picture.toImageSync(4, 4),
+        _throwsStateError(
+          allOf(
+            contains('primary readPixels failure'),
+            isNot(contains('secondary snapshot delete failure')),
+          ),
+        ),
+      );
+      expect(deleteCallCount, 1);
+
+      deleteCallCount = 0;
+      JSAny? throwPrimaryArgumentError(JSAny? x, JSAny? y, JSAny? info) =>
+          throw ArgumentError('primary dart readPixels error');
+      currentReadPixelsOverride = throwPrimaryArgumentError.toJS;
+      expect(
+        () => picture.toImageSync(4, 4),
+        throwsA(
+          isA<ArgumentError>().having(
+            (ArgumentError error) => error.message,
+            'message',
+            'primary dart readPixels error',
+          ),
+        ),
+      );
+      expect(deleteCallCount, 1);
+
+      deleteCallCount = 0;
+      currentReadPixelsOverride = null;
+      currentDeleteBehavior = _jsThrowStringFunction('standalone snapshot delete failure');
+      canvasKit['MakeImage'] = ((JSAny? info, JSAny? pixels, JSNumber rowBytes) {
+        makeImageCalled = true;
+        return (originalMakeImage! as JSFunction).callAsFunction(canvasKit, info, pixels, rowBytes);
+      }).toJS;
+      expect(
+        () => picture.toImageSync(4, 4),
+        _throwsStateError(
+          allOf(
+            contains('Failed to render picture to image:'),
+            contains('standalone snapshot delete failure'),
+          ),
+        ),
+      );
+      expect(deleteCallCount, 1);
+      expect(makeImageCalled, isFalse);
+
+      skiaSurface['makeImageSnapshot'] = originalMakeImageSnapshot;
+      canvasKit['MakeImage'] = originalMakeImage;
+      await _expectSolidGreenImage(picture.toImageSync(4, 4), width: 4, height: 4);
+    });
+
+    test('deletes rasterImage handle when width or height throws after MakeImage', () async {
+      final ui.Picture picture = _createSolidGreenPicture();
+      final imagesToCleanUp = <(SkImage, JSFunction)>[];
+      addTearDown(() {
+        for (final (SkImage img, JSFunction originalDelete) in imagesToCleanUp) {
+          if (!img.isDeleted()) {
+            originalDelete.callAsFunction(img);
+          }
+        }
+      });
+
+      SkImage? capturedRasterImage;
+      var rasterDeleteCount = 0;
+      JSFunction? widthOverride;
+      JSFunction? heightOverride;
+      JSFunction? afterRasterDelete;
+
+      canvasKit['MakeImage'] = ((JSAny? info, JSAny? pixels, JSNumber rowBytes) {
+        final raster =
+            (originalMakeImage! as JSFunction).callAsFunction(canvasKit, info, pixels, rowBytes)!
+                as SkImage;
+        final originalDelete = raster['delete']! as JSFunction;
+        imagesToCleanUp.add((raster, originalDelete));
+        capturedRasterImage = raster;
+        raster['delete'] = (() {
+          rasterDeleteCount++;
+          originalDelete.callAsFunction(raster);
+          afterRasterDelete?.callAsFunction();
+        }).toJS;
+        if (widthOverride != null) {
+          raster['width'] = widthOverride;
+        }
+        if (heightOverride != null) {
+          raster['height'] = heightOverride;
+        }
+        return raster;
+      }).toJS;
+
+      widthOverride = _jsThrowStringFunction('corrupt SkImage width');
+      expect(
+        () => picture.toImageSync(4, 4),
+        _throwsStateError(
+          allOf(contains('Failed to render picture to image:'), contains('corrupt SkImage width')),
+        ),
+      );
+      expect(rasterDeleteCount, 1);
+      expect(capturedRasterImage!.isDeleted(), isTrue);
+
+      rasterDeleteCount = 0;
+      capturedRasterImage = null;
+      widthOverride = null;
+      heightOverride = _jsThrowStringFunction('corrupt SkImage height');
+      afterRasterDelete = _jsThrowStringFunction('secondary raster delete failure');
+      expect(
+        () => picture.toImageSync(4, 4),
+        _throwsStateError(
+          allOf(
+            contains('corrupt SkImage height'),
+            isNot(contains('secondary raster delete failure')),
+          ),
+        ),
+      );
+      expect(rasterDeleteCount, 1);
+      expect(capturedRasterImage!.isDeleted(), isTrue);
+
+      canvasKit['MakeImage'] = originalMakeImage;
+      await _expectSolidGreenImage(picture.toImageSync(4, 4), width: 4, height: 4);
+    });
+
+    test(
+      'rejects disposed pictures while keeping prior images and cloned pictures renderable',
+      () async {
+        final ui.Picture original = _createSolidGreenPicture();
+        final LayerPicture cloned = (original as CkPicture).clone();
+        addTearDown(() {
+          if (!cloned.isDisposed) {
+            cloned.dispose();
+          }
+        });
+
+        final ui.Image priorImage = original.toImageSync(4, 4);
+        original.dispose();
+
+        expect(
+          () => original.toImageSync(4, 4),
+          _throwsStateError(contains('Cannot convert picture to image.')),
+        );
+        await expectLater(
+          original.toImage(4, 4),
+          _throwsStateError(contains('Cannot convert picture to image.')),
+        );
+        expect(() => original.dispose(), _throwsStateError(contains('Cannot dispose picture.')));
+
+        await _expectSolidGreenImage(priorImage, width: 4, height: 4);
+        await _expectSolidGreenImage(cloned.toImageSync(4, 4), width: 4, height: 4);
+        await _expectSolidGreenImage(await cloned.toImage(4, 4), width: 4, height: 4);
+
+        cloned.dispose();
+        expect(
+          () => cloned.toImageSync(4, 4),
+          _throwsStateError(contains('Cannot convert picture to image.')),
+        );
+      },
+    );
+
+    test(
+      'isolates shared pictureToImageSurface across concurrent toImage calls and non-square sizes',
+      () async {
+        final magentaRecorder = ui.PictureRecorder();
+        ui.Canvas(magentaRecorder).drawPaint(ui.Paint()..color = const ui.Color(0xFFFF00FF));
+        final ui.Picture opaqueMagenta = magentaRecorder.endRecording();
+        addTearDown(opaqueMagenta.dispose);
+
+        final halfCyanRecorder = ui.PictureRecorder();
+        ui.Canvas(halfCyanRecorder).drawRect(
+          const ui.Rect.fromLTWH(0, 0, 3, 4),
+          ui.Paint()..color = const ui.Color(0xFF00FFFF),
+        );
+        final ui.Picture leftHalfCyan = halfCyanRecorder.endRecording();
+        addTearDown(leftHalfCyan.dispose);
+
+        final ui.Picture solidGreen = _createSolidGreenPicture();
+        final JSFunction throwTransient = _jsThrowStringFunction('interleaved MakeImage failure');
+        var makeImageCallIndex = 0;
+        canvasKit['MakeImage'] = ((JSAny? info, JSAny? pixels, JSNumber rowBytes) {
+          if (++makeImageCallIndex == 3) {
+            return throwTransient.callAsFunction();
+          }
+          return (originalMakeImage! as JSFunction).callAsFunction(
+            canvasKit,
+            info,
+            pixels,
+            rowBytes,
+          );
+        }).toJS;
+
+        Future<Object> captureOutcome(Future<ui.Image> future) async {
+          try {
+            return await future;
+          } catch (error) {
+            return error;
+          }
+        }
+
+        final List<Object> outcomes = await Future.wait<Object>(<Future<Object>>[
+          captureOutcome(opaqueMagenta.toImage(7, 3)),
+          captureOutcome(opaqueMagenta.toImage(6, 4)),
+          captureOutcome(leftHalfCyan.toImage(0, 4)),
+          captureOutcome(leftHalfCyan.toImage(6, 4)),
+          captureOutcome(leftHalfCyan.toImage(6, 4)),
+          captureOutcome(solidGreen.toImage(3, 5)),
+        ]);
+
+        final magenta7x3 = outcomes[0] as ui.Image;
+        final magenta6x4 = outcomes[1] as ui.Image;
+        addTearDown(magenta7x3.dispose);
+        addTearDown(magenta6x4.dispose);
+        expect((magenta7x3.width, magenta7x3.height), (7, 3));
+        expect((magenta6x4.width, magenta6x4.height), (6, 4));
+        final Uint8List magentaRgba = (await magenta7x3.toByteData())!.buffer.asUint8List();
+        expect(magentaRgba.length, 7 * 3 * 4);
+        for (var i = 0; i < magentaRgba.length; i += 4) {
+          expect(magentaRgba.sublist(i, i + 4), <int>[255, 0, 255, 255]);
+        }
+
+        expect(outcomes[2], isA<Exception>());
+        expect(outcomes[2].toString(), contains('Invalid image dimensions.'));
+        expect(
+          outcomes[3],
+          isA<StateError>().having(
+            (StateError e) => e.message,
+            'message',
+            contains('interleaved MakeImage failure'),
+          ),
+        );
+
+        final halfCyanImage = outcomes[4] as ui.Image;
+        addTearDown(halfCyanImage.dispose);
+        expect((halfCyanImage.width, halfCyanImage.height), (6, 4));
+        final Uint8List cyanRgba = (await halfCyanImage.toByteData())!.buffer.asUint8List();
+        for (var y = 0; y < 4; y++) {
+          for (var x = 0; x < 6; x++) {
+            final int offset = (y * 6 + x) * 4;
+            final expected = x < 3 ? <int>[0, 255, 255, 255] : <int>[0, 0, 0, 0];
+            expect(cyanRgba.sublist(offset, offset + 4), expected, reason: 'pixel ($x, $y)');
+          }
+        }
+
+        await _expectSolidGreenImage(outcomes[5] as ui.Image, width: 3, height: 5);
+      },
+    );
   });
+}
+
+Matcher _throwsStateError(Object messageMatcher) {
+  return throwsA(
+    isA<StateError>().having((StateError error) => error.message, 'message', messageMatcher),
+  );
 }
 
 JSFunction _jsThrowStringFunction(String message) {
