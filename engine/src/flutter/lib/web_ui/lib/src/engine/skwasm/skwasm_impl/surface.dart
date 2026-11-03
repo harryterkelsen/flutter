@@ -57,8 +57,15 @@ class SkwasmCallbackHandler {
     return completer.future;
   }
 
+  void unregisterCallback(int callbackId) {
+    _pendingCallbacks.remove(callbackId);
+  }
+
   void handleCallback(WasmI32 callbackId, WasmI32 context, WasmExternRef? jsContext) {
-    final (Completer<JSAny>, Zone) record = _pendingCallbacks.remove(callbackId.toIntUnsigned())!;
+    final (Completer<JSAny>, Zone)? record = _pendingCallbacks.remove(callbackId.toIntUnsigned());
+    if (record == null) {
+      return;
+    }
     final Completer<JSAny> completer = record.$1;
     final Zone zone = record.$2;
     zone.run(() {
@@ -112,6 +119,7 @@ class SkwasmSurface implements OffscreenSurface {
   BitmapSize _currentSize = const BitmapSize(1, 1);
   Completer<void> _initializedCompleter;
   Completer<void>? _handledContextLostEvent;
+  CallbackId? _contextLostCallbackId;
 
   /// Handles the context lost event by acquiring a new canvas and recreating the
   /// context.
@@ -146,17 +154,32 @@ class SkwasmSurface implements OffscreenSurface {
       // should release its reference to the canvas and unregister any listeners
       // attached to it.
       _canvasProvider.releaseCanvas(_canvas);
-      SkwasmCallbackHandler.instance
-          .registerCallback((contextLostCallbackId as JSNumber).toDartInt)
-          .then((_) {
-            onContextLost();
-          });
+      if (_disposed) {
+        return;
+      }
+      if (_contextLostCallbackId != null) {
+        SkwasmCallbackHandler.instance.unregisterCallback(_contextLostCallbackId!);
+      }
+      final int id = (contextLostCallbackId as JSNumber).toDartInt;
+      _contextLostCallbackId = id;
+      SkwasmCallbackHandler.instance.registerCallback(id).then((_) {
+        if (_contextLostCallbackId == id) {
+          _contextLostCallbackId = null;
+        }
+        onContextLost();
+      });
     });
   }
 
   @override
-  Future<ByteData> rasterizeImage(ui.Image image, ui.ImageByteFormat format) async {
+  Future<ByteData?> rasterizeImage(ui.Image image, ui.ImageByteFormat format) async {
+    if (_disposed) {
+      return null;
+    }
     await initialized;
+    if (_disposed) {
+      return null;
+    }
 
     final EngineImage engineImage;
     final SkwasmImage skwasmImage;
@@ -179,6 +202,12 @@ class SkwasmSurface implements OffscreenSurface {
         (await SkwasmCallbackHandler.instance.registerCallback(callbackId) as JSNumber).toDartInt;
 
     final SkDataHandle dataHandle = SkDataHandle.fromAddress(context);
+    if (_disposed) {
+      if (context != 0) {
+        skDataDispose(dataHandle);
+      }
+      return null;
+    }
     final int byteCount = skDataGetSize(dataHandle);
     final Pointer<Uint8> dataPointer = skDataGetConstPointer(dataHandle).cast<Uint8>();
 
@@ -198,6 +227,9 @@ class SkwasmSurface implements OffscreenSurface {
 
   @override
   void setSkiaResourceCacheMaxBytes(int bytes) {
+    if (_disposed) {
+      return;
+    }
     surfaceSetResourceCacheLimitBytes(handle, bytes);
   }
 
@@ -207,6 +239,14 @@ class SkwasmSurface implements OffscreenSurface {
       return;
     }
     _disposed = true;
+    if (!_initializedCompleter.isCompleted) {
+      _initializedCompleter.complete();
+    }
+    if (_contextLostCallbackId != null) {
+      SkwasmCallbackHandler.instance.unregisterCallback(_contextLostCallbackId!);
+      _contextLostCallbackId = null;
+    }
+    _canvasProvider.releaseCanvas(_canvas);
     onDispose?.call();
     onDispose = null;
     surfaceDestroy(handle);
@@ -217,7 +257,13 @@ class SkwasmSurface implements OffscreenSurface {
     BitmapSize size,
     List<ui.Picture> pictures,
   ) async {
+    if (_disposed) {
+      return <DomImageBitmap>[];
+    }
     await initialized;
+    if (_disposed) {
+      return <DomImageBitmap>[];
+    }
     // The size is sent along with the pictures, so the raster thread resizes and
     // renders in a single message. Messages are processed in order, so no other
     // operation can resize the surface in between.
@@ -240,8 +286,16 @@ class SkwasmSurface implements OffscreenSurface {
     });
     final rasterResult =
         (await SkwasmCallbackHandler.instance.registerCallback(callbackId)) as RasterResult;
+    final List<DomImageBitmap> imageBitmaps = rasterResult.imageBitmaps.toDart
+        .cast<DomImageBitmap>();
+    if (_disposed) {
+      for (final bitmap in imageBitmaps) {
+        bitmap.close();
+      }
+      return <DomImageBitmap>[];
+    }
     final RenderResult result = (
-      imageBitmaps: rasterResult.imageBitmaps.toDart.cast<DomImageBitmap>(),
+      imageBitmaps: imageBitmaps,
       rasterStartMicros: (rasterResult.rasterStartMilliseconds * 1000).toInt(),
       rasterEndMicros: (rasterResult.rasterEndMilliseconds * 1000).toInt(),
     );
@@ -256,6 +310,9 @@ class SkwasmSurface implements OffscreenSurface {
     _canvas = newCanvas as DomOffscreenCanvas;
     _initialize();
     await initialized;
+    if (_disposed) {
+      return;
+    }
     final BitmapSize lastSize = _currentSize;
     // Reset _currentSize to force `setSize` to actually size the underlying
     // Surface.
@@ -265,7 +322,13 @@ class SkwasmSurface implements OffscreenSurface {
 
   @override
   Future<void> setSize(BitmapSize size) async {
+    if (_disposed) {
+      return;
+    }
     await initialized;
+    if (_disposed) {
+      return;
+    }
     final double devicePixelRatio = EngineFlutterDisplay.instance.devicePixelRatio;
     if (_currentSize == size && devicePixelRatio == _currentDevicePixelRatio) {
       return;
@@ -277,13 +340,16 @@ class SkwasmSurface implements OffscreenSurface {
   }
 
   @override
-  int get glContext => surfaceGetGlContext(handle);
+  int get glContext => _disposed ? -1 : surfaceGetGlContext(handle);
 
   @override
   Future<void> get initialized => _initializedCompleter.future;
 
   @override
   Future<void> triggerContextLoss() async {
+    if (_disposed) {
+      return;
+    }
     _handledContextLostEvent = Completer<void>();
     final int callbackId = surfaceTriggerContextLoss(handle);
     await SkwasmCallbackHandler.instance.registerCallback(callbackId);
