@@ -163,8 +163,9 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 ///   view starts a new group (and once all attached platform views have been
 ///   visited, covered or clip-missed subtrees are pruned without descending).
 ///   Subtrees without platform views ([RenderObject.platformViewCount] is
-///   zero) are skipped entirely until the first platform view is visited,
-///   and pruned in the same way as above once one has been visited.
+///   zero) are skipped entirely until the first platform view is visited.
+///   Once one has been visited, such a subtree is pruned without descending
+///   exactly as if all attached platform views had already been visited.
 /// * Platform views themselves are leaves of the walk; their children (if any)
 ///   are not visited.
 ///
@@ -203,6 +204,13 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   // [node]'s subtree contains none.
   bool noMorePlatformViewsIn(RenderObject node) {
     return allPlatformViewsVisited() || (enableEarlyStop && node.platformViewCount == 0);
+  }
+
+  // Whether [node] can be skipped entirely because no platform view has been
+  // visited yet and its subtree contains none: nothing painted before the
+  // first platform view can cover one.
+  bool skipBeforeFirstPlatformView(RenderObject node) {
+    return enableEarlyStop && visitedPlatformViews == 0 && node.platformViewCount == 0;
   }
 
   bool overlapsAnyPlatformView(Rect rect) {
@@ -353,9 +361,8 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     required bool canClaim,
     required int? clipMissedAtGroupCount,
   }) {
-    // Nothing painted before the first platform view can cover one, so a
-    // subtree without platform views is skipped entirely until one is found.
-    if (enableEarlyStop && visitedPlatformViews == 0 && node.platformViewCount == 0) {
+    // Children are already filtered by [visitChild]; this covers the root.
+    if (skipBeforeFirstPlatformView(node)) {
       return;
     }
 
@@ -490,9 +497,9 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   }
 
   visitChild = (RenderObject child) {
-    // As in [visit], skip platform-view-free children before the first
-    // platform view without computing their transform and clip.
-    if (enableEarlyStop && visitedPlatformViews == 0 && child.platformViewCount == 0) {
+    // Skip platform-view-free children before the first platform view without
+    // computing their transform and clip.
+    if (skipBeforeFirstPlatformView(child)) {
       return;
     }
     if (noMorePlatformViewsIn(child) && currentGroupFullyCovered) {
