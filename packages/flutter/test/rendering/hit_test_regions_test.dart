@@ -132,6 +132,20 @@ class _CountingHitTestBox extends RenderBox {
   }
 }
 
+/// A proxy box that counts how many times its children are walked through
+/// [visitChildrenInPaintOrder].
+class _CountingVisitBox extends RenderProxyBox {
+  _CountingVisitBox({RenderBox? child}) : super(child);
+
+  int visitCount = 0;
+
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    visitCount += 1;
+    super.visitChildrenInPaintOrder(visitor);
+  }
+}
+
 /// A proxy box that reports [clipRect] as its approximate paint clip for [child].
 class _TestClipRectBox extends RenderProxyBox {
   _TestClipRectBox({required this.clipRect, RenderBox? child}) : super(child);
@@ -1191,6 +1205,112 @@ void main() {
         );
         expect(beforePv2InClip.visitCount, 0);
         expect(afterPv2InClip.visitCount, 1);
+      },
+    );
+
+    test('skips platform-view-free subtrees painted before the first platform view only with early stop', () {
+      // Mirrors bench_platform_view_over_m3_components: a large
+      // platform-view-free subtree is painted first, then a platform view,
+      // then a small hit target over the platform view.
+      final countingSubtree = _CountingVisitBox(
+        child: _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 800, 100), _hitTarget()),
+          _at(const Rect.fromLTWH(250, 200, 200, 200), _hitTarget()),
+        ]),
+      );
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 800, 600), countingSubtree),
+        _at(const Rect.fromLTWH(200, 150, 400, 300), _platformView(1)),
+        _at(const Rect.fromLTWH(300, 250, 100, 40), _hitTarget()),
+      ]);
+      layout(stack, phase: EnginePhase.composite);
+      final Float64List expected = _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(300, 250, 100, 40)]),
+      ]);
+
+      for (final (bool enableEarlyStop, int expectedVisitCount) in <(bool, int)>[
+        (true, 0),
+        (false, 1),
+      ]) {
+        countingSubtree.visitCount = 0;
+        final Float64List? regions = computeHitTestRegions(stack, enableEarlyStop: enableEarlyStop);
+        expect(regions, equals(expected), reason: 'enableEarlyStop: $enableEarlyStop');
+        expect(
+          countingSubtree.visitCount,
+          expectedVisitCount,
+          reason: 'enableEarlyStop: $enableEarlyStop',
+        );
+      }
+    });
+
+    test(
+      'platformViewCount tracks the platform views adopted into and dropped from each subtree',
+      () {
+        final cases = <(String, List<(RenderObject, int)> Function())>[
+          (
+            'a platform view counts itself and other leaves count nothing',
+            () {
+              final RenderBox leaf = _hitTarget();
+              final PlatformViewRenderBox platformView = _platformView(1);
+              return <(RenderObject, int)>[(platformView, 1), (leaf, 0)];
+            },
+          ),
+          (
+            'adopting a platform view into an adopted subtree increments every ancestor',
+            () {
+              final RenderStack inner = _stack(<RenderBox>[_platformView(1), _hitTarget()]);
+              final proxy = RenderProxyBox(inner);
+              final RenderStack outer = _stack(<RenderBox>[proxy]);
+              inner.add(_platformView(2));
+              return <(RenderObject, int)>[(outer, 2), (proxy, 2), (inner, 2)];
+            },
+          ),
+          (
+            'nested subtrees and sibling branches sum their platform views',
+            () {
+              final RenderStack twoViews = _stack(<RenderBox>[_platformView(1), _platformView(2)]);
+              final oneView = RenderProxyBox(_stack(<RenderBox>[_platformView(3)]));
+              final RenderStack noViews = _stack(<RenderBox>[_hitTarget(), _hitTarget()]);
+              final RenderStack root = _stack(<RenderBox>[twoViews, noViews, oneView]);
+              return <(RenderObject, int)>[(root, 3), (twoViews, 2), (oneView, 1), (noViews, 0)];
+            },
+          ),
+          (
+            'dropping a branch subtracts all of its platform views from every ancestor',
+            () {
+              final RenderStack twoViews = _stack(<RenderBox>[_platformView(1), _platformView(2)]);
+              final RenderStack oneView = _stack(<RenderBox>[_platformView(3)]);
+              final RenderStack middle = _stack(<RenderBox>[twoViews, oneView]);
+              final root = RenderProxyBox(middle);
+              middle.remove(twoViews);
+              return <(RenderObject, int)>[(root, 1), (middle, 1), (twoViews, 2), (oneView, 1)];
+            },
+          ),
+          (
+            'removing one of several platform views keeps the others counted',
+            () {
+              final PlatformViewRenderBox removed = _platformView(2);
+              final RenderStack views = _stack(<RenderBox>[
+                _platformView(1),
+                removed,
+                _platformView(3),
+                _hitTarget(),
+              ]);
+              final root = RenderProxyBox(views);
+              views.remove(removed);
+              return <(RenderObject, int)>[(root, 2), (views, 2), (removed, 1)];
+            },
+          ),
+        ];
+
+        for (final (String description, List<(RenderObject, int)> Function() build) in cases) {
+          final List<(RenderObject, int)> expectations = build();
+          expect(
+            <int>[for (final (RenderObject node, int _) in expectations) node.platformViewCount],
+            <int>[for (final (RenderObject _, int count) in expectations) count],
+            reason: description,
+          );
+        }
       },
     );
 
