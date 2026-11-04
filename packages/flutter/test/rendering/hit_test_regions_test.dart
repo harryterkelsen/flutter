@@ -438,6 +438,48 @@ void main() {
     });
 
     test(
+      'opting back in resends only current regions; opting out always sends an empty payload',
+      () {
+        final updates = <Float64List>[];
+        final PlatformViewRenderBox platformView = _platformView(1);
+        final RenderStack root = _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 300, 300), platformView),
+          _at(const Rect.fromLTWH(5, 15, 40, 30), _hitTarget()),
+        ]);
+        final PipelineOwner owner = createViewOwner(
+          root,
+          updates,
+          parent: binding.rootPipelineOwner,
+        );
+        binding.pumpCompleteFrame();
+        final Float64List regions = updates.single;
+
+        // Toggling off and on before the next frame still tells the engine to
+        // drop its regions, then sends them again.
+        binding.automaticPointerInterceptorsEnabled = false;
+        binding.automaticPointerInterceptorsEnabled = true;
+        binding.pumpCompleteFrame();
+        expect(updates, <Float64List>[regions, Float64List(0), regions]);
+
+        // Once opted out, detaching the platform view leaves nothing to drop
+        // after opting back in.
+        binding.automaticPointerInterceptorsEnabled = false;
+        root.remove(platformView);
+        binding.automaticPointerInterceptorsEnabled = true;
+        binding.pumpCompleteFrame();
+        binding.pumpCompleteFrame();
+        expect(owner.debugLastHitTestRegions, isNull);
+        expect(updates, <Float64List>[regions, Float64List(0), regions, Float64List(0)]);
+
+        // Opting out always tells the engine to drop its regions, even if none
+        // were sent since the last empty payload.
+        binding.automaticPointerInterceptorsEnabled = false;
+        expect(updates, hasLength(5));
+        expect(updates.last, isEmpty);
+      },
+    );
+
+    test(
       'toggling the flag sends nothing on a platform where the pass never runs',
       () {
         final updates = <Float64List>[];
