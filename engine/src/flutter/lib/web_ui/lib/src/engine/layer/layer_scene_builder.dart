@@ -11,13 +11,29 @@ import 'package:ui/ui.dart' as ui;
 bool _webPerfOverlayWarned = false;
 
 class LayerScene implements ui.Scene {
-  LayerScene(RootLayer rootLayer) : layerTree = LayerTree(rootLayer);
+  LayerScene(RootLayer rootLayer) : layerTree = LayerTree(rootLayer) {
+    layerTree.rootLayer.retain();
+  }
 
   final LayerTree layerTree;
 
+  /// The root layer of this scene's layer tree.
+  RootLayer get rootLayer => layerTree.rootLayer;
+
+  bool _isSceneDisposed = false;
+
+  /// Retains the scene's layer tree, preventing child pictures from being disposed.
+  void retain() => layerTree.rootLayer.retain();
+
+  /// Releases the scene's layer tree.
+  void release() => layerTree.rootLayer.release();
+
   @override
   void dispose() {
-    layerTree.rootLayer.dispose();
+    if (!_isSceneDisposed) {
+      _isSceneDisposed = true;
+      release();
+    }
   }
 
   @override
@@ -47,11 +63,13 @@ class LayerScene implements ui.Scene {
 
 class LayerSceneBuilder implements ui.SceneBuilder {
   LayerSceneBuilder() : rootLayer = RootLayer() {
-    currentLayer = rootLayer;
+    _layerStack.add(rootLayer);
   }
 
   final RootLayer rootLayer;
-  late ContainerLayer currentLayer;
+  final List<ContainerLayer> _layerStack = <ContainerLayer>[];
+
+  ContainerLayer get currentLayer => _layerStack.last;
 
   @override
   void addPerformanceOverlay(int enabledOptions, ui.Rect bounds) {
@@ -117,11 +135,9 @@ class LayerSceneBuilder implements ui.SceneBuilder {
 
   @override
   void pop() {
-    if (currentLayer == rootLayer) {
-      // Don't pop the root layer. It must always be there.
-      return;
+    if (_layerStack.length > 1) {
+      _layerStack.removeLast();
     }
-    currentLayer = currentLayer.parent!;
   }
 
   @override
@@ -224,7 +240,7 @@ class LayerSceneBuilder implements ui.SceneBuilder {
 
   T pushLayer<T extends ContainerLayer>(T layer) {
     currentLayer.add(layer);
-    currentLayer = layer;
+    _layerStack.add(layer);
     return layer;
   }
 
