@@ -429,6 +429,12 @@ void main() {
       expect(owner.debugLastHitTestRegions, isNull);
       expect(updates, hasLength(2));
       expect(updates.last, isEmpty);
+
+      // Turning the flag off again is a no-op: no frame, no repeated payload.
+      binding.pumpCompleteFrame();
+      binding.automaticPointerInterceptorsEnabled = false;
+      expect(binding.hasScheduledFrame, isFalse);
+      expect(updates, hasLength(2));
     });
 
     test(
