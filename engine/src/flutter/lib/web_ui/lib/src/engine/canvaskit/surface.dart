@@ -629,7 +629,7 @@ class CkOffscreenSurface extends CkSurface implements OffscreenSurface {
     }
 
     _canvasProvider.resizeCanvas(oldCanvas, size);
-    final WebGLContext gl = (oldCanvas as DomOffscreenCanvas).getGlContext(webGLVersion);
+    final WebGLContext gl = oldCanvas.getGlContext(webGLVersion);
 
     if (gl.drawingBufferWidth >= size.width && gl.drawingBufferHeight >= size.height) {
       _recreateSkSurface();
@@ -688,11 +688,7 @@ class CkOffscreenSurface extends CkSurface implements OffscreenSurface {
   ///
   /// The old canvas and its context are torn down by
   /// [_releaseCanvasAndContext] before the new canvas is acquired.
-  ///
-  /// This also records [size] as the current size, because the new Skia
-  /// surface is created at [_currentSize].
   void _replaceCanvasWithSize(BitmapSize size) {
-    _currentSize = size;
     _releaseCanvasAndContext();
 
     final DomEventTarget newCanvas = _canvasProvider.acquireCanvas(
