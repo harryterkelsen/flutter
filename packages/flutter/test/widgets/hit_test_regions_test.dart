@@ -1712,6 +1712,53 @@ void main() {
       defaultOwner.rootNode = savedRootNode;
     },
   );
+
+  testWidgets(
+    'a platform view in an OverlayPortal child is found above the overlay entry and hiding it clears the regions',
+    (WidgetTester tester) async {
+      enablePass(tester);
+      final controller = OverlayPortalController();
+      const overPlatformView = Rect.fromLTWH(120, 130, 40, 30);
+      await tester.pumpWidget(
+        _app(
+          OverlayPortal(
+            controller: controller,
+            overlayChildBuilder: (BuildContext context) => Stack(
+              children: <Widget>[
+                Positioned(left: 100, top: 100, width: 200, height: 200, child: _platformView(1)),
+                Positioned.fromRect(
+                  rect: overPlatformView,
+                  child: Listener(behavior: HitTestBehavior.opaque, onPointerDown: (_) {}),
+                ),
+              ],
+            ),
+            // Painted before the overlay child, so it covers no platform view.
+            child: Listener(
+              behavior: HitTestBehavior.opaque,
+              onPointerDown: (_) {},
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      );
+      final RenderView renderView = RendererBinding.instance.renderViews.single;
+      expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      expect(renderView.platformViewCount, 0);
+
+      controller.show();
+      await tester.pump();
+      expect(renderView.platformViewCount, 1);
+      expect(_lastRegions(), <int, Set<Rect>>{
+        1: <Rect>{overPlatformView},
+      });
+
+      controller.hide();
+      await tester.pump();
+      expect(renderView.platformViewCount, 0);
+      expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      expect(tester.view.lastHitTestRegions, isEmpty);
+    },
+  );
 }
 
 class _TestFlutterView extends TestFlutterView {
