@@ -152,6 +152,9 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 ///   objects skip [RenderObject.visitHitTestRegions] until another platform
 ///   view starts a new group (and once all attached platform views have been
 ///   visited, covered or clip-missed subtrees are pruned without descending).
+///   Subtrees without platform views ([RenderObject.platformViewCount] is
+///   zero) are skipped entirely until the first platform view is visited,
+///   and pruned in the same way as above once one has been visited.
 /// * Platform views themselves are leaves of the walk; their children (if any)
 ///   are not visited.
 ///
@@ -183,6 +186,13 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     return enableEarlyStop &&
         totalPlatformViews != null &&
         visitedPlatformViews >= totalPlatformViews;
+  }
+
+  // Whether no platform view remains to be visited in [node]'s subtree, either
+  // because every attached platform view has been visited already or because
+  // [node]'s subtree contains none.
+  bool noMorePlatformViewsIn(RenderObject node) {
+    return allPlatformViewsVisited() || (enableEarlyStop && node.platformViewCount == 0);
   }
 
   bool overlapsAnyPlatformView(Rect rect) {
@@ -350,6 +360,12 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       return;
     }
 
+    // Nothing painted before the first platform view can cover one, so a
+    // subtree without platform views is skipped entirely until one is found.
+    if (enableEarlyStop && visitedPlatformViews == 0 && node.platformViewCount == 0) {
+      return;
+    }
+
     // A render object under (or itself being) an ignoring IgnorePointer never
     // claims a region.
     final bool selfIgnoringPointers =
@@ -379,7 +395,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       return;
     }
 
-    if (allPlatformViewsVisited() &&
+    if (noMorePlatformViewsIn(node) &&
         (currentGroupFullyCovered ||
             selfIgnoringPointers ||
             clipMissedAtGroupCount == groups.length)) {
@@ -405,7 +421,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         node.visitHitTestRegions(claimRegion);
         nodeClaimedOwnBounds = enableEarlyStop && claimedOwnBounds;
       }
-      if (allPlatformViewsVisited() && (currentGroupFullyCovered || nodeClaimedOwnBounds)) {
+      if (noMorePlatformViewsIn(node) && (currentGroupFullyCovered || nodeClaimedOwnBounds)) {
         return;
       }
     }
@@ -426,7 +442,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
           !overlapsAnyPlatformView(descendantsHitTestClip)) {
         descendantsClipMissedAtGroupCount = groups.length;
       }
-      if (allPlatformViewsVisited() && descendantsClipMissedAtGroupCount == groups.length) {
+      if (noMorePlatformViewsIn(node) && descendantsClipMissedAtGroupCount == groups.length) {
         return;
       }
     } else {
@@ -445,7 +461,12 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   }
 
   visitChild = (RenderObject child) {
-    if (allPlatformViewsVisited() && currentGroupFullyCovered) {
+    // As in [visit], skip platform-view-free children before the first
+    // platform view without computing their transform and clip.
+    if (enableEarlyStop && visitedPlatformViews == 0 && child.platformViewCount == 0) {
+      return;
+    }
+    if (noMorePlatformViewsIn(child) && currentGroupFullyCovered) {
       return;
     }
     // A box that has never been laid out (for example, an overlay entry
