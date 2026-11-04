@@ -720,6 +720,9 @@ class PlatformViewRenderBox extends RenderBox with _PlatformViewGestureMixin {
        _controller = controller {
     this.hitTestBehavior = hitTestBehavior;
     updateGestureRecognizers(gestureRecognizers);
+    // Counts itself so that its ancestors know their subtree contains a
+    // platform view.
+    platformViewCount = 1;
   }
 
   /// The controller for this render object.

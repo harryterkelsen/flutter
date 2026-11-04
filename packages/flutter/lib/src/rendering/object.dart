@@ -1828,6 +1828,15 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// This pass is experimental (see
   /// [RendererBinding.automaticPointerInterceptorsEnabled]).
   void flushHitTestRegions() {
+    // The hit-test region pass skips subtrees by their platform view count, so
+    // the count at the root must account for every attached platform view.
+    assert(
+      !(kIsWeb || debugEnableHitTestRegionsOnAllPlatforms) ||
+          rootNode == null ||
+          rootNode!.platformViewCount == _attachedPlatformViewCount,
+      'The root node has ${rootNode?.platformViewCount} platform views in its subtree, but '
+      '$_attachedPlatformViewCount platform views are attached to this pipeline owner.',
+    );
     Float64List? regions;
     if (_attachedPlatformViewCount > 0 && rootNode != null) {
       if (!kReleaseMode) {
@@ -2366,6 +2375,36 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   RenderObject? get parent => _parent;
   RenderObject? _parent;
 
+  /// The number of [PlatformViewRenderBox]es in the subtree rooted at this
+  /// render object, including this render object itself.
+  ///
+  /// Maintained by [adoptChild] and [dropChild], whether or not the subtree is
+  /// attached, so that the hit-test region pass can skip subtrees that contain
+  /// no platform views.
+  @internal
+  int get platformViewCount => _platformViewCount;
+  int _platformViewCount = 0;
+
+  /// Sets the number of platform views this render object contributes to its
+  /// subtree.
+  ///
+  /// Only for use by [PlatformViewRenderBox] in its constructor, before the
+  /// render object has a parent.
+  @protected
+  @internal
+  set platformViewCount(int value) => _platformViewCount = value;
+
+  // Adds [delta] to the platform view count of this render object and each of
+  // its ancestors.
+  void _addPlatformViewCount(int delta) {
+    RenderObject? node = this;
+    while (node != null) {
+      node._platformViewCount += delta;
+      assert(node._platformViewCount >= 0);
+      node = node._parent;
+    }
+  }
+
   /// Called by subclasses when they decide a render object is a child.
   ///
   /// Only for use by subclasses when changing their child lists. Calling this
@@ -2388,6 +2427,9 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
     markNeedsCompositingBitsUpdate();
     markNeedsSemanticsUpdate();
     child._parent = this;
+    if (child._platformViewCount != 0) {
+      _addPlatformViewCount(child._platformViewCount);
+    }
     if (attached) {
       child.attach(owner!);
     }
@@ -2409,6 +2451,9 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
     }
     child.parentData!.detach();
     child.parentData = null;
+    if (child._platformViewCount != 0) {
+      _addPlatformViewCount(-child._platformViewCount);
+    }
     child._parent = null;
     if (attached) {
       child.detach();
