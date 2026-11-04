@@ -1816,6 +1816,8 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   void flushHitTestRegions() {
     // The hit-test region pass skips subtrees by their platform view count, so
     // the count at the root must account for every attached platform view.
+    // Both counts are maintained on every platform, but the check only runs
+    // where the pass can run.
     assert(
       !(kIsWeb || debugEnableHitTestRegionsOnAllPlatforms) ||
           rootNode == null ||
@@ -2363,17 +2365,23 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// attached, so that the hit-test region pass can skip subtrees that contain
   /// no platform views.
   @internal
+  @nonVirtual
   int get platformViewCount => _platformViewCount;
   int _platformViewCount = 0;
 
-  /// Sets the number of platform views this render object contributes to its
-  /// subtree.
-  ///
-  /// Only for use by [PlatformViewRenderBox] in its constructor, before the
-  /// render object has a parent.
+  // Only set by [PlatformViewRenderBox] in its constructor, before it has a
+  // parent or children. Setting it does not update the ancestors' counts.
   @protected
   @internal
-  set platformViewCount(int value) => _platformViewCount = value;
+  @nonVirtual
+  set platformViewCount(int value) {
+    assert(value >= 0);
+    assert(
+      _parent == null && _platformViewCount == 0,
+      'platformViewCount may only be set before this render object has a parent or children.',
+    );
+    _platformViewCount = value;
+  }
 
   // Adds [delta] to the platform view count of this render object and each of
   // its ancestors.

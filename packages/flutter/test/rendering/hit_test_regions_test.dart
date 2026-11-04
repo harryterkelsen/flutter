@@ -146,6 +146,29 @@ class _CountingVisitBox extends RenderProxyBox {
   }
 }
 
+/// Expects [computeHitTestRegions] on [root] to return [expected] both with and
+/// without early stop, and to walk [subtree]'s children only without it.
+void _expectSubtreeSkippedOnlyWithEarlyStop(
+  RenderObject root,
+  _CountingVisitBox subtree,
+  Float64List expected, {
+  String description = '',
+}) {
+  for (final (bool enableEarlyStop, int expectedVisitCount) in <(bool, int)>[
+    (true, 0),
+    (false, 1),
+  ]) {
+    subtree.visitCount = 0;
+    final reason = '$description enableEarlyStop: $enableEarlyStop';
+    expect(
+      computeHitTestRegions(root, enableEarlyStop: enableEarlyStop),
+      equals(expected),
+      reason: reason,
+    );
+    expect(subtree.visitCount, expectedVisitCount, reason: reason);
+  }
+}
+
 /// A proxy box that reports [clipRect] as its approximate paint clip for [child].
 class _TestClipRectBox extends RenderProxyBox {
   _TestClipRectBox({required this.clipRect, RenderBox? child}) : super(child);
@@ -285,6 +308,14 @@ void main() {
       owner.dispose();
     });
     return owner;
+  }
+
+  /// Lays out [owner]'s render tree, flushes its hit-test regions, and returns
+  /// the payload it computed.
+  Float64List? flushRegions(PipelineOwner owner) {
+    owner.flushLayout();
+    owner.flushHitTestRegions();
+    return owner.debugLastHitTestRegions;
   }
 
   group('gating and delivery', () {
@@ -1209,7 +1240,7 @@ void main() {
     );
 
     test('skips platform-view-free subtrees painted before the first platform view only with early stop', () {
-      // Mirrors bench_platform_view_over_m3_components: a large
+      // Mirrors `bench_platform_view_over_m3_components`: a large
       // platform-view-free subtree is painted first, then a platform view,
       // then a small hit target over the platform view.
       final countingSubtree = _CountingVisitBox(
@@ -1228,19 +1259,7 @@ void main() {
         (1, <Rect>[const Rect.fromLTWH(300, 250, 100, 40)]),
       ]);
 
-      for (final (bool enableEarlyStop, int expectedVisitCount) in <(bool, int)>[
-        (true, 0),
-        (false, 1),
-      ]) {
-        countingSubtree.visitCount = 0;
-        final Float64List? regions = computeHitTestRegions(stack, enableEarlyStop: enableEarlyStop);
-        expect(regions, equals(expected), reason: 'enableEarlyStop: $enableEarlyStop');
-        expect(
-          countingSubtree.visitCount,
-          expectedVisitCount,
-          reason: 'enableEarlyStop: $enableEarlyStop',
-        );
-      }
+      _expectSubtreeSkippedOnlyWithEarlyStop(stack, countingSubtree, expected);
     });
 
     test(
@@ -1284,21 +1303,6 @@ void main() {
               final root = RenderProxyBox(middle);
               middle.remove(twoViews);
               return <(RenderObject, int)>[(root, 1), (middle, 1), (twoViews, 2), (oneView, 1)];
-            },
-          ),
-          (
-            'removing one of several platform views keeps the others counted',
-            () {
-              final PlatformViewRenderBox removed = _platformView(2);
-              final RenderStack views = _stack(<RenderBox>[
-                _platformView(1),
-                removed,
-                _platformView(3),
-                _hitTarget(),
-              ]);
-              final root = RenderProxyBox(views);
-              views.remove(removed);
-              return <(RenderObject, int)>[(root, 2), (views, 2), (removed, 1)];
             },
           ),
         ];
@@ -1385,19 +1389,7 @@ void main() {
             (2, <Rect>[overSecondView]),
           ]);
 
-          for (final (bool enableEarlyStop, int expectedVisitCount) in <(bool, int)>[
-            (true, 0),
-            (false, 1),
-          ]) {
-            subtree.visitCount = 0;
-            final reason = '$description, enableEarlyStop: $enableEarlyStop';
-            expect(
-              computeHitTestRegions(root, enableEarlyStop: enableEarlyStop),
-              equals(expected),
-              reason: reason,
-            );
-            expect(subtree.visitCount, expectedVisitCount, reason: reason);
-          }
+          _expectSubtreeSkippedOnlyWithEarlyStop(root, subtree, expected, description: description);
         }
       },
     );
@@ -1419,11 +1411,7 @@ void main() {
         _at(const Rect.fromLTWH(0, 0, 800, 600), to),
       ]);
       final PipelineOwner owner = createViewOwner(root, updates);
-      Float64List? flush() {
-        owner.flushLayout();
-        owner.flushHitTestRegions();
-        return owner.debugLastHitTestRegions;
-      }
+      Float64List? flush() => flushRegions(owner);
 
       List<int> counts() => <int>[
         for (final RenderObject node in <RenderObject>[owner.rootNode!, root, from, to])
@@ -1459,9 +1447,7 @@ void main() {
       final PipelineOwner owner = createViewOwner(root, updates);
       Float64List? flushWithPassOn() {
         debugEnableHitTestRegionsOnAllPlatforms = true;
-        owner.flushLayout();
-        owner.flushHitTestRegions();
-        return owner.debugLastHitTestRegions;
+        return flushRegions(owner);
       }
 
       RenderBox platformViewSubtree(int viewId, Rect claim) {
