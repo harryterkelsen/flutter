@@ -590,12 +590,26 @@ mixin RendererBinding
   /// When enabled, [PipelineOwner.flushHitTestRegions] runs after every frame
   /// when a platform view is attached and reports overlapping hit-test regions
   /// through [PipelineOwner.onHitTestRegionsUpdate] so the web engine can
-  /// intercept pointer events over platform views. Setting this to `false` opts
-  /// out and immediately clears any previously reported regions via
-  /// [PipelineOwner.clearHitTestRegions].
+  /// intercept pointer events over platform views.
   ///
-  /// This flag is experimental and only has an effect on the web (unless
-  /// [debugEnableHitTestRegionsOnAllPlatforms] is enabled in tests).
+  /// This flag is experimental. It is initialized to true on every platform,
+  /// but automatic pointer interception is only active on the web (or on other
+  /// platforms when [debugEnableHitTestRegionsOnAllPlatforms] is enabled in
+  /// tests).
+  ///
+  /// Setting this to false at runtime opts out: it immediately calls
+  /// [PipelineOwner.clearHitTestRegions] to remove any hit-test regions
+  /// previously sent to the engine. Setting it back to true calls
+  /// [scheduleFrame] so that the regions are promptly recomputed and sent
+  /// again. Assigning the current value is a no-op and schedules no frame.
+  ///
+  /// While a drag is in progress, pointer capture keeps it active when the
+  /// pointer moves over a platform view such as an iframe. The semantics host
+  /// (`<flt-semantics-host>`) is deliberately excluded from pointer capture so
+  /// that the engine's `ClickDebouncer` can still dispatch screen reader
+  /// clicks. As a result, when accessibility semantics are enabled, a drag that
+  /// starts on a semantics node pauses while the pointer is over an iframe
+  /// platform view.
   ///
   /// Defaults to true.
   bool get automaticPointerInterceptorsEnabled => _automaticPointerInterceptorsEnabled;
