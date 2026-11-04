@@ -233,6 +233,8 @@ void main() {
   tearDown(() {
     binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
     debugEnableHitTestRegionsOnAllPlatforms = false;
+    // Restoring the default no longer clears regions left by a test that ended
+    // opted in, so drop them explicitly before the next test.
     binding.rootPipelineOwner.clearHitTestRegions();
     binding.renderView.configuration = initialConfiguration;
     // Detach this test's platform views from the root pipeline owner.
@@ -281,19 +283,13 @@ void main() {
       expect(initialAutomaticPointerInterceptorsEnabled, isTrue);
       expect(binding.automaticPointerInterceptorsEnabled, isTrue);
 
-      debugEnableHitTestRegionsOnAllPlatforms = true;
-      final stack = RenderStack(
-        textDirection: TextDirection.ltr,
-        children: <RenderBox>[
-          _positioned(left: 0, top: 0, width: 300, height: 300, child: _createPlatformView(1)),
-          _positioned(left: 10, top: 20, width: 100, height: 50, child: _createHitTarget()),
-        ],
-      );
-
-      layout(stack, phase: EnginePhase.composite);
-      binding.pumpCompleteFrame();
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 300, 300), _platformView(1)),
+        _at(const Rect.fromLTWH(10, 20, 100, 50), _hitTarget()),
+      ]);
+      // One group for platform view 1 holding the hit target's rect.
       final expectedRegions = Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0]);
-      expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+      expect(regionsFor(root), equals(expectedRegions));
 
       // Redundant opt-in when already true by default is a no-op.
       binding.automaticPointerInterceptorsEnabled = true;

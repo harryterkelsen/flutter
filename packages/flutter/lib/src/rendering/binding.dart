@@ -588,17 +588,17 @@ mixin RendererBinding
   /// platform views and sends them to the engine each frame.
   ///
   /// When enabled, [PipelineOwner.flushHitTestRegions] runs after every frame
-  /// when a platform view is attached and reports overlapping hit-test regions
-  /// through [PipelineOwner.onHitTestRegionsUpdate] so the web engine can
-  /// intercept pointer events over platform views.
+  /// and, while a platform view is attached, reports the hit-test regions that
+  /// overlap it through [PipelineOwner.onHitTestRegionsUpdate] so the web
+  /// engine can intercept pointer events over platform views.
   ///
   /// This flag is experimental. It is initialized to true on every platform,
   /// but automatic pointer interception is only active on the web (or on other
   /// platforms when [debugEnableHitTestRegionsOnAllPlatforms] is enabled in
   /// tests).
   ///
-  /// Setting this to false at runtime opts out: it immediately calls
-  /// [PipelineOwner.clearHitTestRegions] to remove any hit-test regions
+  /// On the web, setting this to false at runtime opts out: it immediately
+  /// calls [PipelineOwner.clearHitTestRegions] to remove any hit-test regions
   /// previously sent to the engine. Setting it back to true calls
   /// [scheduleFrame] so that the regions are promptly recomputed and sent
   /// again. Assigning the current value is a no-op and schedules no frame.
