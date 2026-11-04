@@ -219,18 +219,23 @@ ViewConfiguration _createViewConfiguration({
 
 void main() {
   final TestRenderingFlutterBinding binding = TestRenderingFlutterBinding.ensureInitialized();
+  final bool initialAutomaticPointerInterceptorsEnabled =
+      binding.automaticPointerInterceptorsEnabled;
   late ViewConfiguration initialConfiguration;
 
   setUp(() {
     initialConfiguration = binding.renderView.configuration;
     binding.renderView.configuration = _viewConfiguration();
     debugEnableHitTestRegionsOnAllPlatforms = true;
-    binding.automaticPointerInterceptorsEnabled = true;
+    binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
   });
 
   tearDown(() {
-    binding.automaticPointerInterceptorsEnabled = false;
+    binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
     debugEnableHitTestRegionsOnAllPlatforms = false;
+    // Restoring the default no longer clears regions left by a test that ended
+    // opted in, so drop them explicitly before the next test.
+    binding.rootPipelineOwner.clearHitTestRegions();
     binding.renderView.configuration = initialConfiguration;
     // Detach this test's platform views from the root pipeline owner.
     binding.renderView.child = null;
@@ -274,6 +279,34 @@ void main() {
   }
 
   group('gating and delivery', () {
+    test('automaticPointerInterceptorsEnabled defaults to true and computes hit-test regions without opt-in', () {
+      expect(initialAutomaticPointerInterceptorsEnabled, isTrue);
+      expect(binding.automaticPointerInterceptorsEnabled, isTrue);
+
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 300, 300), _platformView(1)),
+        _at(const Rect.fromLTWH(10, 20, 100, 50), _hitTarget()),
+      ]);
+      // One group for platform view 1 holding the hit target's rect.
+      final expectedRegions = Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0]);
+      expect(regionsFor(root), equals(expectedRegions));
+
+      // Redundant opt-in when already true by default is a no-op.
+      binding.automaticPointerInterceptorsEnabled = true;
+      expect(binding.hasScheduledFrame, isFalse);
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+
+      // Opting out clears regions; re-enabling schedules a frame and restores them.
+      binding.automaticPointerInterceptorsEnabled = false;
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      binding.pumpCompleteFrame();
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      binding.automaticPointerInterceptorsEnabled = true;
+      expect(binding.hasScheduledFrame, isTrue);
+      binding.pumpCompleteFrame();
+      expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
+    });
+
     test('the pass does not run while the flag is off, nor off the web without the debug flag', () {
       binding.automaticPointerInterceptorsEnabled = false;
       final RenderStack root = _stack(<RenderBox>[
@@ -392,7 +425,55 @@ void main() {
       expect(owner.debugLastHitTestRegions, isNull);
       expect(updates, hasLength(2));
       expect(updates.last, isEmpty);
+
+      // Turning the flag off again is a no-op: no frame, no repeated payload.
+      binding.pumpCompleteFrame();
+      binding.automaticPointerInterceptorsEnabled = false;
+      expect(binding.hasScheduledFrame, isFalse);
+      expect(updates, hasLength(2));
     });
+
+    test(
+      'opting back in resends only current regions; opting out always sends an empty payload',
+      () {
+        final updates = <Float64List>[];
+        final PlatformViewRenderBox platformView = _platformView(1);
+        final RenderStack root = _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 300, 300), platformView),
+          _at(const Rect.fromLTWH(5, 15, 40, 30), _hitTarget()),
+        ]);
+        final PipelineOwner owner = createViewOwner(
+          root,
+          updates,
+          parent: binding.rootPipelineOwner,
+        );
+        binding.pumpCompleteFrame();
+        final Float64List regions = updates.single;
+
+        // Toggling off and on before the next frame still tells the engine to
+        // drop its regions, then sends them again.
+        binding.automaticPointerInterceptorsEnabled = false;
+        binding.automaticPointerInterceptorsEnabled = true;
+        binding.pumpCompleteFrame();
+        expect(updates, <Float64List>[regions, Float64List(0), regions]);
+
+        // Once opted out, detaching the platform view leaves nothing to drop
+        // after opting back in.
+        binding.automaticPointerInterceptorsEnabled = false;
+        root.remove(platformView);
+        binding.automaticPointerInterceptorsEnabled = true;
+        binding.pumpCompleteFrame();
+        binding.pumpCompleteFrame();
+        expect(owner.debugLastHitTestRegions, isNull);
+        expect(updates, <Float64List>[regions, Float64List(0), regions, Float64List(0)]);
+
+        // Opting out always tells the engine to drop its regions, even if none
+        // were sent since the last empty payload.
+        binding.automaticPointerInterceptorsEnabled = false;
+        expect(updates, hasLength(5));
+        expect(updates.last, isEmpty);
+      },
+    );
 
     test(
       'toggling the flag sends nothing on a platform where the pass never runs',

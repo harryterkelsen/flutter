@@ -26,10 +26,11 @@ const Key dialogTitleKey = ValueKey<String>('dialog-title');
 /// `--dart-define=HIT_TEST_PROXY_OFF=true`.
 const bool _offByDefine = bool.fromEnvironment('HIT_TEST_PROXY_OFF');
 
-/// Whether this app turns on automatic pointer interceptors.
+/// Whether this app keeps automatic pointer interceptors enabled.
 ///
-/// They are on unless the page URL has an `off` query parameter or the app was
-/// built with `--dart-define=HIT_TEST_PROXY_OFF=true`.
+/// Automatic pointer interceptors are enabled by default unless the page URL
+/// has an `off` query parameter or the app was built with
+/// `--dart-define=HIT_TEST_PROXY_OFF=true`.
 bool get automaticPointerInterceptorsRequested =>
     !_offByDefine && !Uri.base.queryParameters.containsKey('off');
 
@@ -149,8 +150,8 @@ void _resetState() {
 
 void _initialize() {
   WidgetsFlutterBinding.ensureInitialized();
-  if (automaticPointerInterceptorsRequested) {
-    RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
+  if (!automaticPointerInterceptorsRequested) {
+    RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
   }
   _resetState();
   _registerFactories();
