@@ -531,7 +531,7 @@ void testMain() {
         await surface.rasterizeToCanvas(picture1);
         expect(surface.skSurface, isNotNull);
 
-        final SkImage snapshot1 = surface.skSurface!.makeImageSnapshot();
+        final SkImage snapshot1 = surface.skSurface!.makeImageSnapshot()!;
         try {
           expect(snapshot1.width(), 1);
           expect(snapshot1.height(), 1);
@@ -558,7 +558,7 @@ void testMain() {
         await surface.rasterizeToCanvas(picture0);
         expect(surface.skSurface, isNotNull);
 
-        final SkImage snapshot0 = surface.skSurface!.makeImageSnapshot();
+        final SkImage snapshot0 = surface.skSurface!.makeImageSnapshot()!;
         try {
           expect(snapshot0.width(), 1);
           expect(snapshot0.height(), 1);
@@ -902,7 +902,7 @@ ui.Size getCssSize(DomHTMLCanvasElement canvas) {
 /// Reads back the RGBA bytes of the pixel at ([x], [y]) from the current Skia
 /// surface of [surface].
 List<int> readSurfacePixel(CkSurface surface, int x, int y) {
-  final SkImage snapshot = surface.skSurface!.makeImageSnapshot();
+  final SkImage snapshot = surface.skSurface!.makeImageSnapshot()!;
   try {
     final imageInfo = SkImageInfo(
       alphaType: canvasKit.AlphaType.Premul,

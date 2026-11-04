@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:ui/ui.dart' as ui;
@@ -150,7 +149,7 @@ class CkPicture implements LayerPicture, StackTraceDebugger {
       final ckCanvas = CkCanvas.fromSkCanvas(skiaSurface.getCanvas());
       ckCanvas.clear(const ui.Color(0x00000000));
       ckCanvas.drawPicture(this);
-      final SkImage? skImage = skiaSurface._makeImageSnapshot();
+      final SkImage? skImage = skiaSurface.makeImageSnapshot();
       if (skImage == null) {
         throw StateError('Unable to create image snapshot from SkSurface.');
       }
@@ -231,14 +230,6 @@ class CkPicture implements LayerPicture, StackTraceDebugger {
 
   @override
   bool get isDisposed => _isDisposed;
-}
-
-/// Nullable binding for `SkSurface.makeImageSnapshot`, which returns `null` if
-/// Skia snapshot creation fails despite the non-nullable declaration in
-/// `canvaskit_api.dart`.
-extension _SkSurfaceSnapshotExtension on SkSurface {
-  @JS('makeImageSnapshot')
-  external SkImage? _makeImageSnapshot();
 }
 
 String _describeJsError(Object? error) {
