@@ -268,23 +268,26 @@ void testMain() {
         final frameTimingRecorder = FrameTimingRecorder();
         await viewRasterizer.draw(frameScene.layerTree, frameTimingRecorder);
 
+        final String outcome;
         if (expectedFrameSize != null) {
           expectedPreparedSizes.add(expectedFrameSize);
+          outcome = '$physicalSize rounds to $expectedFrameSize, so the frame is drawn';
         } else {
-          // Build and raster timings were each recorded exactly once, so the
-          // frame timing can be submitted.
-          expect(frameTimingRecorder.submitTimings, returnsNormally, reason: '$physicalSize');
+          outcome = '$physicalSize rounds to an empty bitmap, so the frame is skipped';
+          // `submitTimings` only succeeds once the build and raster timings
+          // have each been recorded.
+          expect(
+            frameTimingRecorder.submitTimings,
+            returnsNormally,
+            reason: 'a skipped frame still records its build and raster timings',
+          );
         }
-        expect(viewRasterizer.preparedSizes, expectedPreparedSizes, reason: '$physicalSize');
-        expect(
-          viewRasterizer.rasterizeCount,
-          expectedPreparedSizes.length,
-          reason: '$physicalSize',
-        );
+        expect(viewRasterizer.preparedSizes, expectedPreparedSizes, reason: outcome);
+        expect(viewRasterizer.rasterizeCount, expectedPreparedSizes.length, reason: outcome);
         expect(
           viewRasterizer.currentFrameSize,
           expectedPreparedSizes.isEmpty ? BitmapSize.zero : expectedPreparedSizes.last,
-          reason: '$physicalSize',
+          reason: outcome,
         );
       }
     });
