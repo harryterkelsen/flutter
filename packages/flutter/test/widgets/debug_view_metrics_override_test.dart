@@ -1565,6 +1565,9 @@ class _FakeView implements ui.FlutterView {
   ui.DisplayCornerRadii? get displayCornerRadii => null;
 
   @override
+  void updateHitTestRegions(Float64List regions) {}
+
+  @override
   dynamic noSuchMethod(Invocation invocation) =>
       throw UnimplementedError('${invocation.memberName} is not needed by these tests.');
 }

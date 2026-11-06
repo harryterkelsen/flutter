@@ -263,6 +263,9 @@ class _TestFlutterView implements FlutterView {
 
   @override
   void updateSemantics(ui.SemanticsUpdate update) {}
+
+  @override
+  void updateHitTestRegions(Float64List regions) {}
 }
 
 mixin _ChildWindowHierarchyMixin {

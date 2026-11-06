@@ -15,7 +15,7 @@
 library;
 
 import 'dart:collection';
-import 'dart:typed_data' show ByteData;
+import 'dart:typed_data' show ByteData, Float64List;
 import 'dart:ui'
     as ui
     show
@@ -1840,6 +1840,9 @@ class _DebugViewMetricsFlutterView implements ui.FlutterView {
 
   @override
   void updateSemantics(ui.SemanticsUpdate update) => _view.updateSemantics(update);
+
+  @override
+  void updateHitTestRegions(Float64List regions) => _view.updateHitTestRegions(regions);
 
   @override
   String toString() => 'DebugViewMetricsFlutterView(id: $viewId)';
