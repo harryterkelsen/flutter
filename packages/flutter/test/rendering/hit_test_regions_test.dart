@@ -132,6 +132,43 @@ class _CountingHitTestBox extends RenderBox {
   }
 }
 
+/// A proxy box that counts how many times its children are walked through
+/// [visitChildrenInPaintOrder].
+class _CountingVisitBox extends RenderProxyBox {
+  _CountingVisitBox({RenderBox? child}) : super(child);
+
+  int visitCount = 0;
+
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    visitCount += 1;
+    super.visitChildrenInPaintOrder(visitor);
+  }
+}
+
+/// Expects [computeHitTestRegions] on [root] to return [expected] both with and
+/// without early stop, and to walk [subtree]'s children only without it.
+void _expectSubtreeSkippedOnlyWithEarlyStop(
+  RenderObject root,
+  _CountingVisitBox subtree,
+  Float64List expected, {
+  String description = '',
+}) {
+  for (final (bool enableEarlyStop, int expectedVisitCount) in <(bool, int)>[
+    (true, 0),
+    (false, 1),
+  ]) {
+    subtree.visitCount = 0;
+    final reason = '$description enableEarlyStop: $enableEarlyStop';
+    expect(
+      computeHitTestRegions(root, enableEarlyStop: enableEarlyStop),
+      equals(expected),
+      reason: reason,
+    );
+    expect(subtree.visitCount, expectedVisitCount, reason: reason);
+  }
+}
+
 /// A proxy box that reports [clipRect] as its approximate paint clip for [child].
 class _TestClipRectBox extends RenderProxyBox {
   _TestClipRectBox({required this.clipRect, RenderBox? child}) : super(child);
@@ -271,6 +308,14 @@ void main() {
       owner.dispose();
     });
     return owner;
+  }
+
+  /// Lays out [owner]'s render tree, flushes its hit-test regions, and returns
+  /// the payload it computed.
+  Float64List? flushRegions(PipelineOwner owner) {
+    owner.flushLayout();
+    owner.flushHitTestRegions();
+    return owner.debugLastHitTestRegions;
   }
 
   group('gating and delivery', () {
@@ -1193,6 +1238,258 @@ void main() {
         expect(afterPv2InClip.visitCount, 1);
       },
     );
+
+    test('skips platform-view-free subtrees painted before the first platform view only with early stop', () {
+      // Mirrors `bench_platform_view_over_m3_components`: a large
+      // platform-view-free subtree is painted first, then a platform view,
+      // then a small hit target over the platform view.
+      final countingSubtree = _CountingVisitBox(
+        child: _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 800, 100), _hitTarget()),
+          _at(const Rect.fromLTWH(250, 200, 200, 200), _hitTarget()),
+        ]),
+      );
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 800, 600), countingSubtree),
+        _at(const Rect.fromLTWH(200, 150, 400, 300), _platformView(1)),
+        _at(const Rect.fromLTWH(300, 250, 100, 40), _hitTarget()),
+      ]);
+      layout(stack, phase: EnginePhase.composite);
+      final Float64List expected = _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(300, 250, 100, 40)]),
+      ]);
+
+      _expectSubtreeSkippedOnlyWithEarlyStop(stack, countingSubtree, expected);
+    });
+
+    test(
+      'platformViewCount tracks the platform views adopted into and dropped from each subtree',
+      () {
+        final cases = <(String, List<(RenderObject, int)> Function())>[
+          (
+            'a platform view counts itself and other leaves count nothing',
+            () {
+              final RenderBox leaf = _hitTarget();
+              final PlatformViewRenderBox platformView = _platformView(1);
+              return <(RenderObject, int)>[(platformView, 1), (leaf, 0)];
+            },
+          ),
+          (
+            'adopting a platform view into an adopted subtree increments every ancestor',
+            () {
+              final RenderStack inner = _stack(<RenderBox>[_platformView(1), _hitTarget()]);
+              final proxy = RenderProxyBox(inner);
+              final RenderStack outer = _stack(<RenderBox>[proxy]);
+              inner.add(_platformView(2));
+              return <(RenderObject, int)>[(outer, 2), (proxy, 2), (inner, 2)];
+            },
+          ),
+          (
+            'nested subtrees and sibling branches sum their platform views',
+            () {
+              final RenderStack twoViews = _stack(<RenderBox>[_platformView(1), _platformView(2)]);
+              final oneView = RenderProxyBox(_stack(<RenderBox>[_platformView(3)]));
+              final RenderStack noViews = _stack(<RenderBox>[_hitTarget(), _hitTarget()]);
+              final RenderStack root = _stack(<RenderBox>[twoViews, noViews, oneView]);
+              return <(RenderObject, int)>[(root, 3), (twoViews, 2), (oneView, 1), (noViews, 0)];
+            },
+          ),
+          (
+            'dropping a branch subtracts all of its platform views from every ancestor',
+            () {
+              final RenderStack twoViews = _stack(<RenderBox>[_platformView(1), _platformView(2)]);
+              final RenderStack oneView = _stack(<RenderBox>[_platformView(3)]);
+              final RenderStack middle = _stack(<RenderBox>[twoViews, oneView]);
+              final root = RenderProxyBox(middle);
+              middle.remove(twoViews);
+              return <(RenderObject, int)>[(root, 1), (middle, 1), (twoViews, 2), (oneView, 1)];
+            },
+          ),
+        ];
+
+        for (final (String description, List<(RenderObject, int)> Function() build) in cases) {
+          final List<(RenderObject, int)> expectations = build();
+          expect(
+            <int>[for (final (RenderObject node, int _) in expectations) node.platformViewCount],
+            <int>[for (final (RenderObject _, int count) in expectations) count],
+            reason: description,
+          );
+        }
+      },
+    );
+
+    test(
+      'prunes platform-view-free subtrees painted between two platform views only with early stop',
+      () {
+        const firstView = Rect.fromLTWH(0, 0, 200, 200);
+        const secondView = Rect.fromLTWH(300, 0, 200, 200);
+        const overSecondView = Rect.fromLTWH(350, 50, 50, 50);
+        // Each case paints, between the platform views, a platform-view-free
+        // subtree that cannot claim anything new over the first platform view,
+        // so the walk can skip it although the second one is still to come.
+        final cases = <(String, List<RenderBox> Function(RenderBox subtree), List<Rect>)>[
+          (
+            'under a fully covered group',
+            (RenderBox subtree) => <RenderBox>[
+              _at(const Rect.fromLTWH(0, 0, 250, 250), _hitTarget()),
+              _at(const Rect.fromLTWH(10, 10, 100, 100), subtree),
+            ],
+            <Rect>[const Rect.fromLTWH(0, 0, 250, 250)],
+          ),
+          (
+            'ignoring pointers',
+            (RenderBox subtree) => <RenderBox>[
+              _at(const Rect.fromLTWH(10, 10, 100, 100), RenderIgnorePointer(child: subtree)),
+            ],
+            <Rect>[],
+          ),
+          (
+            'clipped away from the first platform view',
+            (RenderBox subtree) => <RenderBox>[
+              _at(
+                const Rect.fromLTWH(0, 0, 800, 600),
+                _TestClipRectBox(clipRect: const Rect.fromLTWH(600, 400, 100, 100), child: subtree),
+              ),
+            ],
+            <Rect>[],
+          ),
+          (
+            'inside a box that claims its own bounds',
+            (RenderBox subtree) => <RenderBox>[
+              _at(
+                const Rect.fromLTWH(50, 50, 100, 100),
+                RenderPointerListener(behavior: HitTestBehavior.opaque, child: subtree),
+              ),
+            ],
+            <Rect>[const Rect.fromLTWH(50, 50, 100, 100)],
+          ),
+        ];
+
+        for (final (
+              String description,
+              List<RenderBox> Function(RenderBox) between,
+              List<Rect> overFirstView,
+            )
+            in cases) {
+          final subtree = _CountingVisitBox(
+            child: _stack(<RenderBox>[_at(const Rect.fromLTWH(10, 10, 50, 50), _hitTarget())]),
+          );
+          final RenderStack root = _stack(<RenderBox>[
+            _at(firstView, _platformView(1)),
+            ...between(subtree),
+            _at(
+              const Rect.fromLTWH(0, 0, 800, 600),
+              RenderProxyBox(_stack(<RenderBox>[_at(secondView, _platformView(2))])),
+            ),
+            _at(overSecondView, _hitTarget()),
+          ]);
+          layout(root, phase: EnginePhase.composite);
+          final Float64List expected = _payload(<(int, List<Rect>)>[
+            (1, overFirstView),
+            (2, <Rect>[overSecondView]),
+          ]);
+
+          _expectSubtreeSkippedOnlyWithEarlyStop(root, subtree, expected, description: description);
+        }
+      },
+    );
+
+    test('a platform view subtree moved to another parent takes its count and regions along, and removing it sends one empty payload', () {
+      final updates = <Float64List>[];
+      const overSubtree = Rect.fromLTWH(10, 10, 50, 50);
+      final RenderStack platformViewSubtree = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 200, 200), _platformView(1)),
+        _at(overSubtree, _hitTarget()),
+      ]);
+      final RenderStack from = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 200, 200), platformViewSubtree),
+      ]);
+      const overMovedSubtree = Rect.fromLTWH(300, 300, 100, 100);
+      final RenderStack to = _stack(<RenderBox>[_at(overMovedSubtree, _hitTarget())]);
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 800, 600), from),
+        _at(const Rect.fromLTWH(0, 0, 800, 600), to),
+      ]);
+      final PipelineOwner owner = createViewOwner(root, updates);
+      Float64List? flush() => flushRegions(owner);
+
+      List<int> counts() => <int>[
+        for (final RenderObject node in <RenderObject>[owner.rootNode!, root, from, to])
+          node.platformViewCount,
+      ];
+
+      final Float64List initial = _payload(<(int, List<Rect>)>[
+        (1, <Rect>[overSubtree]),
+      ]);
+      expect(flush(), initial);
+      expect(counts(), <int>[1, 1, 1, 0]);
+
+      // Moved under `to`, the subtree is painted below `to`'s hit target.
+      from.remove(platformViewSubtree);
+      to.insert(_at(const Rect.fromLTWH(250, 250, 200, 200), platformViewSubtree));
+      expect(counts(), <int>[1, 1, 0, 1]);
+      final Float64List moved = _payload(<(int, List<Rect>)>[
+        (1, <Rect>[overSubtree.shift(const Offset(250, 250)), overMovedSubtree]),
+      ]);
+      expect(flush(), moved);
+      expect(computeHitTestRegions(owner.rootNode!, enableEarlyStop: false), moved);
+
+      to.remove(platformViewSubtree);
+      expect(counts(), <int>[0, 0, 0, 0]);
+      expect(flush(), isNull);
+      expect(flush(), isNull);
+      expect(updates, <Float64List>[initial, moved, Float64List(0)]);
+    });
+
+    test('platformViewCount stays in sync when the pass is turned off and on around adding and removing platform views', () {
+      final updates = <Float64List>[];
+      final RenderStack root = _stack(<RenderBox>[]);
+      final PipelineOwner owner = createViewOwner(root, updates);
+      Float64List? flushWithPassOn() {
+        debugEnableHitTestRegionsOnAllPlatforms = true;
+        return flushRegions(owner);
+      }
+
+      RenderBox platformViewSubtree(int viewId, Rect claim) {
+        return _at(
+          const Rect.fromLTWH(0, 0, 800, 600),
+          _stack(<RenderBox>[
+            _at(const Rect.fromLTWH(0, 0, 300, 300), _platformView(viewId)),
+            _at(claim, _hitTarget()),
+          ]),
+        );
+      }
+
+      const claim1 = Rect.fromLTWH(10, 20, 30, 40);
+      const claim2 = Rect.fromLTWH(50, 60, 70, 80);
+      final RenderBox first = platformViewSubtree(1, claim1);
+      final RenderBox second = platformViewSubtree(2, claim2);
+      final Float64List firstOnly = _payload(<(int, List<Rect>)>[
+        (1, <Rect>[claim1]),
+      ]);
+      final Float64List secondOnly = _payload(<(int, List<Rect>)>[
+        (2, <Rect>[claim2]),
+      ]);
+
+      // Added while the pass is off.
+      debugEnableHitTestRegionsOnAllPlatforms = false;
+      root.add(first);
+      expect(flushWithPassOn(), firstOnly);
+
+      // Added while the pass is on, then the other one removed while it is off.
+      root.add(second);
+      debugEnableHitTestRegionsOnAllPlatforms = false;
+      root.remove(first);
+      expect(<int>[owner.rootNode!.platformViewCount, first.platformViewCount], <int>[1, 1]);
+      expect(flushWithPassOn(), secondOnly);
+
+      // Removed while the pass is off.
+      debugEnableHitTestRegionsOnAllPlatforms = false;
+      root.remove(second);
+      expect(owner.rootNode!.platformViewCount, 0);
+      expect(flushWithPassOn(), isNull);
+      expect(updates, <Float64List>[firstOnly, secondOnly, Float64List(0)]);
+    });
 
     test('stops visiting hit-test regions after full cover until next platform view and matches enableEarlyStop: false', () {
       debugEnableHitTestRegionsOnAllPlatforms = true;
