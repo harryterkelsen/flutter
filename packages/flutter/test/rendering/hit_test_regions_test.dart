@@ -39,6 +39,32 @@ RenderBox _hitTarget({HitTestBehavior behavior = HitTestBehavior.opaque}) {
   return RenderPointerListener(behavior: behavior);
 }
 
+/// Paints the children of a [RenderFlow] at [offsets], in [paintOrder].
+///
+/// Children whose index is not in [paintOrder] are not painted at all.
+class _PaintOrderFlowDelegate extends FlowDelegate {
+  const _PaintOrderFlowDelegate({required this.paintOrder, required this.offsets});
+
+  final List<int> paintOrder;
+  final List<Offset> offsets;
+
+  @override
+  BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) => constraints.loosen();
+
+  @override
+  void paintChildren(FlowPaintingContext context) {
+    for (final int index in paintOrder) {
+      context.paintChild(
+        index,
+        transform: Matrix4.translationValues(offsets[index].dx, offsets[index].dy, 0.0),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_PaintOrderFlowDelegate oldDelegate) => true;
+}
+
 /// The payload expected for [groups], given in paint order as
 /// `(platformViewId, claimedRects)`: for each group, the ID, the number of
 /// rects, and then each rect's left, top, right and bottom multiplied by
@@ -482,5 +508,94 @@ void main() {
         ]),
       );
     });
+  });
+
+  test('RenderIndexedStack contributes only its displayed child', () {
+    final indexedStack = RenderIndexedStack(
+      textDirection: TextDirection.ltr,
+      children: <RenderBox>[
+        // Index 0: a hit target over platform view 1.
+        _at(const Rect.fromLTWH(10, 20, 100, 50), _hitTarget()),
+        // Index 1: platform view 2 with a hit target on top of it.
+        _at(
+          const Rect.fromLTWH(0, 0, 300, 300),
+          _stack(<RenderBox>[
+            _at(const Rect.fromLTWH(0, 0, 300, 300), _platformView(2)),
+            _at(const Rect.fromLTWH(50, 60, 40, 30), _hitTarget()),
+          ]),
+        ),
+      ],
+    );
+
+    final RenderStack stack = _stack(<RenderBox>[
+      _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+      _at(const Rect.fromLTWH(0, 0, 400, 400), indexedStack),
+    ]);
+
+    layout(stack, phase: EnginePhase.composite);
+
+    // Index 0 is displayed: the hidden platform view 2 and the hit target over
+    // it are laid out but not painted, so they contribute neither a group nor
+    // a rect.
+    expect(
+      regionsAfterFrame(),
+      _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(10, 20, 100, 50)]),
+      ]),
+    );
+
+    // Index 1 is displayed: the hidden hit target over platform view 1 does not
+    // claim, and platform view 2 starts a group holding the hit target over it.
+    indexedStack.index = 1;
+    pumpFrame(phase: EnginePhase.composite);
+    expect(
+      regionsAfterFrame(),
+      _payload(<(int, List<Rect>)>[
+        (1, const <Rect>[]),
+        (2, <Rect>[const Rect.fromLTWH(50, 60, 40, 30)]),
+      ]),
+    );
+  });
+
+  test('RenderFlow children are walked in the order the delegate paints them', () {
+    final flow = RenderFlow(
+      delegate: const _PaintOrderFlowDelegate(
+        // Child 2 is painted first (under the platform view), then the
+        // platform view, then child 0 (over the platform view). Child 3 is
+        // never painted.
+        paintOrder: <int>[2, 1, 0],
+        offsets: <Offset>[Offset(10, 20), Offset.zero, Offset(200, 300), Offset(50, 50)],
+      ),
+      children: <RenderBox>[
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 100.0, height: 50.0),
+          child: _hitTarget(),
+        ),
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 400.0, height: 400.0),
+          child: _platformView(1),
+        ),
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 80.0, height: 40.0),
+          child: _hitTarget(),
+        ),
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 60.0, height: 30.0),
+          child: _hitTarget(),
+        ),
+      ],
+    );
+
+    final RenderStack stack = _stack(<RenderBox>[_at(const Rect.fromLTWH(0, 0, 400, 400), flow)]);
+
+    layout(stack, phase: EnginePhase.composite);
+
+    // Only child 0, painted after the platform view, claims its rect.
+    expect(
+      regionsAfterFrame(),
+      _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(10, 20, 100, 50)]),
+      ]),
+    );
   });
 }
