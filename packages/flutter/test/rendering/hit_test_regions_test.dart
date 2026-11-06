@@ -5,6 +5,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/src/rendering/hit_test_regions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../services/fake_platform_views.dart';
@@ -111,6 +112,71 @@ class _RegionSliver extends RenderSliverToBoxAdapter {
   }
 }
 
+/// A hit-target box that counts how many times [visitHitTestRegions] is called.
+class _CountingHitTestBox extends RenderBox {
+  int visitCount = 0;
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  bool hitTestSelf(Offset position) => true;
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    visitCount += 1;
+    super.visitHitTestRegions(visitor);
+  }
+}
+
+/// A proxy box that reports [clipRect] as its approximate paint clip for [child].
+class _TestClipRectBox extends RenderProxyBox {
+  _TestClipRectBox({required this.clipRect, RenderBox? child}) : super(child);
+
+  final Rect clipRect;
+
+  @override
+  Rect? describeApproximatePaintClip(RenderObject child) => clipRect;
+}
+
+RenderBox _positioned({
+  double? left,
+  double? top,
+  double? right,
+  double? bottom,
+  double? width,
+  double? height,
+  required RenderBox child,
+}) {
+  child.parentData = StackParentData()
+    ..left = left
+    ..top = top
+    ..right = right
+    ..bottom = bottom
+    ..width = width
+    ..height = height;
+  return child;
+}
+
+PlatformViewRenderBox _createPlatformView(int viewId) {
+  return _platformView(viewId);
+}
+
+RenderBox _createHitTarget({
+  double width = 100.0,
+  double height = 50.0,
+  HitTestBehavior behavior = HitTestBehavior.opaque,
+  RenderBox? child,
+}) {
+  return RenderConstrainedBox(
+    additionalConstraints: BoxConstraints.tightFor(width: width, height: height),
+    child: RenderPointerListener(behavior: behavior, child: child),
+  );
+}
+
 /// The payload expected for [groups], given in paint order as
 /// `(platformViewId, claimedRects)`: for each group, the ID, the number of
 /// rects, and then each rect's left, top, right and bottom multiplied by
@@ -132,6 +198,18 @@ Float64List _payload(List<(int, List<Rect>)> groups, {double scale = 1.0}) {
 
 ViewConfiguration _viewConfiguration({double devicePixelRatio = 1.0}) {
   final logicalConstraints = BoxConstraints.tight(const Size(800.0, 600.0));
+  return ViewConfiguration(
+    logicalConstraints: logicalConstraints,
+    physicalConstraints: logicalConstraints * devicePixelRatio,
+    devicePixelRatio: devicePixelRatio,
+  );
+}
+
+ViewConfiguration _createViewConfiguration({
+  Size size = const Size(800.0, 600.0),
+  double devicePixelRatio = 1.0,
+}) {
+  final logicalConstraints = BoxConstraints.tight(size);
   return ViewConfiguration(
     logicalConstraints: logicalConstraints,
     physicalConstraints: logicalConstraints * devicePixelRatio,
@@ -365,7 +443,7 @@ void main() {
       () {
         // Sent whole even though it overhangs the platform view; the engine may
         // clip it.
-        const overhangingClaim = Rect.fromLTWH(0, 0, 300, 300);
+        const overhangingClaim = Rect.fromLTWH(0, 0, 130, 130);
         final Float64List? regions = regionsFor(
           _stack(<RenderBox>[
             _at(const Rect.fromLTWH(100, 100, 50, 50), _platformView(1)),
@@ -446,10 +524,12 @@ void main() {
           _at(onlyOverPv1, _hitTarget()),
         ]),
       );
+      // PV1 group receives the barrier rect [0, 0, 800, 600], which
+      // subsumes buttonOverPv1 and dialogHeader.
       expect(
         regions,
         _payload(<(int, List<Rect>)>[
-          (1, <Rect>[buttonOverPv1, barrier, dialogHeader]),
+          (1, <Rect>[barrier]),
           (2, <Rect>[buttonOverPv2, onlyOverPv1]),
         ]),
       );
@@ -898,5 +978,581 @@ void main() {
         (1, <Rect>[const Rect.fromLTRB(10, 75, 60, 95)]),
       ]),
     );
+  });
+
+  group('performance optimizations', () {
+    test('deduplicates contained rects within a group in both forward and reverse order', () {
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      binding.automaticPointerInterceptorsEnabled = true;
+
+      // Forward containment: outer rect [10, 10, 140, 140] is claimed first,
+      // followed by inner rect [20, 20, 100, 100] and identical rect [10, 10, 140, 140].
+      // None of them cover the entire 500x500 platform view.
+      final forwardStack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 0, top: 0, width: 500, height: 500, child: _createPlatformView(1)),
+          _positioned(
+            left: 10,
+            top: 10,
+            width: 130,
+            height: 130,
+            child: _createHitTarget(width: 130, height: 130),
+          ),
+          _positioned(
+            left: 20,
+            top: 20,
+            width: 80,
+            height: 80,
+            child: _createHitTarget(width: 80, height: 80),
+          ),
+          _positioned(
+            left: 10,
+            top: 10,
+            width: 130,
+            height: 130,
+            child: _createHitTarget(width: 130, height: 130),
+          ),
+        ],
+      );
+
+      layout(forwardStack, phase: EnginePhase.composite);
+      binding.pumpCompleteFrame();
+      expect(
+        binding.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 10.0, 140.0, 140.0])),
+      );
+
+      // Reverse containment: inner rect [20, 20, 100, 100] is claimed first,
+      // followed by outer rect [10, 10, 140, 140] that completely contains it
+      // without covering the entire 500x500 platform view.
+      final reverseStack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 0, top: 0, width: 500, height: 500, child: _createPlatformView(1)),
+          _positioned(
+            left: 20,
+            top: 20,
+            width: 80,
+            height: 80,
+            child: _createHitTarget(width: 80, height: 80),
+          ),
+          _positioned(
+            left: 10,
+            top: 10,
+            width: 130,
+            height: 130,
+            child: _createHitTarget(width: 130, height: 130),
+          ),
+        ],
+      );
+
+      layout(reverseStack, phase: EnginePhase.composite);
+      binding.pumpCompleteFrame();
+      expect(
+        binding.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 10.0, 140.0, 140.0])),
+      );
+    });
+
+    test('skips onHitTestRegionsUpdate when payload is unchanged across frames', () {
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      binding.automaticPointerInterceptorsEnabled = true;
+
+      final updates = <Float64List>[];
+      final owner = PipelineOwner(onHitTestRegionsUpdate: updates.add);
+      final view = RenderView(
+        configuration: _createViewConfiguration(),
+        view: binding.platformDispatcher.views.single,
+      );
+      owner.rootNode = view;
+      view.prepareInitialFrame();
+      addTearDown(() {
+        owner.rootNode = null;
+        owner.dispose();
+      });
+
+      final RenderBox overlay = _positioned(
+        left: 10,
+        top: 20,
+        width: 100,
+        height: 50,
+        child: _createHitTarget(),
+      );
+      final stack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 0, top: 0, width: 300, height: 300, child: _createPlatformView(1)),
+          overlay,
+        ],
+      );
+      view.child = stack;
+
+      void flushFrame() {
+        owner.flushLayout();
+        owner.flushCompositingBits();
+        owner.flushPaint();
+        owner.flushHitTestRegions();
+      }
+
+      // Frame 1: initial regions are dispatched once.
+      flushFrame();
+      expect(updates, hasLength(1));
+      expect(
+        updates.single,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+      );
+
+      // Frame 2: unchanged hit-test regions do not invoke onHitTestRegionsUpdate again.
+      flushFrame();
+      expect(updates, hasLength(1));
+
+      // Frame 3: moving the overlay changes the regions and invokes onHitTestRegionsUpdate.
+      (overlay.parentData! as StackParentData).left = 30.0;
+      stack.markNeedsLayout();
+      flushFrame();
+      expect(updates, hasLength(2));
+      expect(
+        updates.last,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 30.0, 20.0, 130.0, 70.0])),
+      );
+    });
+
+    test(
+      'skips visiting hit-test regions in clipped subtrees that miss all earlier platform views',
+      () {
+        debugEnableHitTestRegionsOnAllPlatforms = true;
+        binding.automaticPointerInterceptorsEnabled = true;
+
+        final nestedTarget1 = _CountingHitTestBox();
+        final nestedTarget2 = _CountingHitTestBox();
+
+        final clippedSubtreeWithoutPv = _TestClipRectBox(
+          clipRect: const Rect.fromLTWH(200, 200, 100, 100),
+          child: RenderStack(
+            textDirection: TextDirection.ltr,
+            children: <RenderBox>[
+              _positioned(left: 210, top: 210, width: 50, height: 50, child: nestedTarget1),
+              _positioned(left: 220, top: 220, width: 40, height: 40, child: nestedTarget2),
+            ],
+          ),
+        );
+
+        final stack1 = RenderStack(
+          textDirection: TextDirection.ltr,
+          children: <RenderBox>[
+            _positioned(left: 0, top: 0, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 0, top: 0, width: 400, height: 400, child: clippedSubtreeWithoutPv),
+          ],
+        );
+
+        layout(stack1, phase: EnginePhase.composite);
+        final Float64List? regions1 = computeHitTestRegions(stack1);
+        expect(regions1, equals(Float64List.fromList(<double>[1.0, 0.0])));
+        expect(nestedTarget1.visitCount, 0);
+        expect(nestedTarget2.visitCount, 0);
+
+        // When a second platform view is inside the clipped subtree at (210, 210, 50, 50),
+        // a box before PV2 in the clipped subtree is not visited, while a box after PV2 is visited.
+        final beforePv2InClip = _CountingHitTestBox();
+        final afterPv2InClip = _CountingHitTestBox();
+
+        final clippedSubtreeWithPv2 = _TestClipRectBox(
+          clipRect: const Rect.fromLTWH(200, 200, 100, 100),
+          child: RenderStack(
+            textDirection: TextDirection.ltr,
+            children: <RenderBox>[
+              _positioned(left: 210, top: 210, width: 50, height: 50, child: beforePv2InClip),
+              _positioned(
+                left: 210,
+                top: 210,
+                width: 50,
+                height: 50,
+                child: _createPlatformView(2),
+              ),
+              _positioned(left: 220, top: 220, width: 30, height: 30, child: afterPv2InClip),
+            ],
+          ),
+        );
+
+        final stack2 = RenderStack(
+          textDirection: TextDirection.ltr,
+          children: <RenderBox>[
+            _positioned(left: 0, top: 0, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 0, top: 0, width: 400, height: 400, child: clippedSubtreeWithPv2),
+          ],
+        );
+
+        layout(stack2, phase: EnginePhase.composite);
+        final Float64List? regions2 = computeHitTestRegions(stack2);
+        expect(
+          regions2,
+          equals(Float64List.fromList(<double>[1.0, 0.0, 2.0, 1.0, 220.0, 220.0, 250.0, 250.0])),
+        );
+        expect(beforePv2InClip.visitCount, 0);
+        expect(afterPv2InClip.visitCount, 1);
+      },
+    );
+
+    test('stops visiting hit-test regions after full cover until next platform view and matches enableEarlyStop: false', () {
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      binding.automaticPointerInterceptorsEnabled = true;
+
+      final coveredAfterFullCover = _CountingHitTestBox();
+      final singlePvFullCoverStack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+          _positioned(
+            left: 60,
+            top: 60,
+            width: 30,
+            height: 30,
+            child: _createHitTarget(width: 30, height: 30),
+          ),
+          _positioned(
+            left: 0,
+            top: 0,
+            width: 200,
+            height: 200,
+            child: _createHitTarget(width: 200, height: 200),
+          ),
+          _positioned(left: 60, top: 60, width: 20, height: 20, child: coveredAfterFullCover),
+        ],
+      );
+
+      layout(singlePvFullCoverStack, phase: EnginePhase.composite);
+      final Float64List? earlyStoppedSingle = computeHitTestRegions(singlePvFullCoverStack);
+      expect(coveredAfterFullCover.visitCount, 0);
+      expect(
+        earlyStoppedSingle,
+        equals(computeHitTestRegions(singlePvFullCoverStack, enableEarlyStop: false)),
+      );
+      expect(coveredAfterFullCover.visitCount, 1);
+
+      // When a second platform view appears after the full-cover box, nodes between the
+      // full-cover box and PV2 are skipped, while nodes after PV2 in group 2 are visited.
+      final skippedInGroup1 = _CountingHitTestBox();
+      final visitedInGroup2 = _CountingHitTestBox();
+      final twoPvFullCoverStack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[
+          _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+          _positioned(
+            left: 55,
+            top: 55,
+            width: 25,
+            height: 25,
+            child: _createHitTarget(width: 25, height: 25),
+          ),
+          _positioned(
+            left: 0,
+            top: 0,
+            width: 200,
+            height: 200,
+            child: _createHitTarget(width: 200, height: 200),
+          ),
+          _positioned(left: 60, top: 60, width: 20, height: 20, child: skippedInGroup1),
+          _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(2)),
+          _positioned(left: 70, top: 70, width: 30, height: 30, child: visitedInGroup2),
+        ],
+      );
+
+      layout(twoPvFullCoverStack, phase: EnginePhase.composite);
+      final Float64List? earlyStoppedTwoPv = computeHitTestRegions(twoPvFullCoverStack);
+      expect(skippedInGroup1.visitCount, 0);
+      expect(visitedInGroup2.visitCount, 1);
+      expect(
+        earlyStoppedTwoPv,
+        equals(computeHitTestRegions(twoPvFullCoverStack, enableEarlyStop: false)),
+      );
+
+      // Additional clipped and transformed scenarios comparing enableEarlyStop: true vs false.
+      final scenarios = <RenderBox>[
+        // 1. Clipped subtrees with full and partial cover.
+        RenderStack(
+          textDirection: TextDirection.ltr,
+          children: <RenderBox>[
+            _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(
+              left: 25,
+              top: 25,
+              width: 200,
+              height: 200,
+              child: RenderClipRect(child: _createHitTarget(width: 200, height: 200)),
+            ),
+            _positioned(
+              left: 60,
+              top: 60,
+              width: 40,
+              height: 40,
+              child: RenderClipRect(child: _createHitTarget(width: 40, height: 40)),
+            ),
+          ],
+        ),
+        // 4. Translated and scaled subtrees.
+        RenderStack(
+          textDirection: TextDirection.ltr,
+          children: <RenderBox>[
+            _positioned(left: 40, top: 40, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(
+              left: 0,
+              top: 0,
+              width: 200,
+              height: 200,
+              child: RenderTransform(
+                transform: Matrix4.translationValues(20.0, 20.0, 0.0)
+                  ..multiply(Matrix4.diagonal3Values(2.0, 2.0, 1.0)),
+                child: _createHitTarget(width: 100, height: 100),
+              ),
+            ),
+            _positioned(
+              left: 50,
+              top: 50,
+              width: 30,
+              height: 30,
+              child: _createHitTarget(width: 30, height: 30),
+            ),
+          ],
+        ),
+      ];
+
+      for (final scenario in scenarios) {
+        layout(scenario, phase: EnginePhase.composite);
+        final Float64List? withEarlyStop = computeHitTestRegions(scenario);
+        final Float64List? withoutEarlyStop = computeHitTestRegions(
+          scenario,
+          enableEarlyStop: false,
+        );
+        expect(withEarlyStop, equals(withoutEarlyStop));
+      }
+    });
+
+    test(
+      'covering only one of multiple earlier platform views does not trigger premature early-stop',
+      () {
+        debugEnableHitTestRegionsOnAllPlatforms = true;
+        binding.automaticPointerInterceptorsEnabled = true;
+
+        final targetOverPv2AfterPv1Cover = _CountingHitTestBox();
+        final targetAfterBothCovered = _CountingHitTestBox();
+
+        // PV1 is at (0, 0, 100, 100) and PV2 is at (0, 200, 100, 300).
+        // After PV2, a box covers PV1 completely (0, 0, 120, 120) but does not
+        // cover PV2. Early-stop must not activate until all earlier platform
+        // views in `groups` are covered, so `targetOverPv2AfterPv1Cover` over PV2
+        // is still visited. Once a later box covers both PV1 and PV2
+        // (0, 0, 200, 350), `targetAfterBothCovered` is skipped.
+        final stack = RenderStack(
+          textDirection: TextDirection.ltr,
+          children: <RenderBox>[
+            _positioned(left: 0, top: 0, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 0, top: 200, width: 100, height: 100, child: _createPlatformView(2)),
+            _positioned(
+              left: 0,
+              top: 0,
+              width: 120,
+              height: 120,
+              child: _createHitTarget(width: 120, height: 120),
+            ),
+            _positioned(
+              left: 10,
+              top: 210,
+              width: 40,
+              height: 40,
+              child: targetOverPv2AfterPv1Cover,
+            ),
+            _positioned(
+              left: 0,
+              top: 0,
+              width: 200,
+              height: 350,
+              child: _createHitTarget(width: 200, height: 350),
+            ),
+            _positioned(left: 20, top: 20, width: 30, height: 30, child: targetAfterBothCovered),
+          ],
+        );
+
+        layout(stack, phase: EnginePhase.composite);
+        final Float64List? withEarlyStop = computeHitTestRegions(stack);
+        expect(targetOverPv2AfterPv1Cover.visitCount, 1);
+        expect(targetAfterBothCovered.visitCount, 0);
+        expect(withEarlyStop, equals(computeHitTestRegions(stack, enableEarlyStop: false)));
+      },
+    );
+
+    test(
+      'absorbing RenderAbsorbPointer still skips its subtree during early-stop and clip-miss',
+      () {
+        debugEnableHitTestRegionsOnAllPlatforms = true;
+        binding.automaticPointerInterceptorsEnabled = true;
+
+        final insideEarlyStoppedAbsorber = _CountingHitTestBox();
+        final insideClipMissedAbsorber = _CountingHitTestBox();
+
+        final stack = RenderStack(
+          textDirection: TextDirection.ltr,
+          children: <RenderBox>[
+            _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+            // Covers PV1 completely so currentGroupFullyCovered becomes true.
+            _positioned(
+              left: 0,
+              top: 0,
+              width: 200,
+              height: 200,
+              child: _createHitTarget(width: 200, height: 200),
+            ),
+            // Absorbing RenderAbsorbPointer visited while currentGroupFullyCovered is true:
+            // its subtree is still visited for platform views (PV2 starts a group), while
+            // non-platform-view children inside it never claim regions.
+            _positioned(
+              left: 50,
+              top: 50,
+              width: 100,
+              height: 100,
+              child: RenderAbsorbPointer(
+                child: RenderStack(
+                  textDirection: TextDirection.ltr,
+                  children: <RenderBox>[
+                    _positioned(
+                      left: 0,
+                      top: 0,
+                      width: 100,
+                      height: 100,
+                      child: _createPlatformView(2),
+                    ),
+                    _positioned(
+                      left: 10,
+                      top: 10,
+                      width: 20,
+                      height: 20,
+                      child: insideEarlyStoppedAbsorber,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // Absorbing RenderAbsorbPointer inside a clipped subtree that misses PV1:
+            // its subtree is still visited for platform views (PV3 starts a group), while
+            // non-platform-view children inside it never claim regions.
+            _positioned(
+              left: 0,
+              top: 0,
+              width: 400,
+              height: 400,
+              child: _TestClipRectBox(
+                clipRect: const Rect.fromLTWH(250, 250, 100, 100),
+                child: RenderAbsorbPointer(
+                  child: RenderStack(
+                    textDirection: TextDirection.ltr,
+                    children: <RenderBox>[
+                      _positioned(
+                        left: 260,
+                        top: 260,
+                        width: 50,
+                        height: 50,
+                        child: _createPlatformView(3),
+                      ),
+                      _positioned(
+                        left: 270,
+                        top: 270,
+                        width: 20,
+                        height: 20,
+                        child: insideClipMissedAbsorber,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+
+        layout(stack, phase: EnginePhase.composite);
+        final Float64List? withEarlyStop = computeHitTestRegions(stack);
+        expect(insideEarlyStoppedAbsorber.visitCount, 0);
+        expect(insideClipMissedAbsorber.visitCount, 0);
+        expect(
+          withEarlyStop,
+          equals(
+            Float64List.fromList(<double>[
+              1.0, 1.0, 0.0, 0.0, 200.0, 200.0, //
+              2.0, 0.0, //
+              3.0, 0.0,
+            ]),
+          ),
+        );
+        expect(withEarlyStop, equals(computeHitTestRegions(stack, enableEarlyStop: false)));
+      },
+    );
+
+    test('re-dispatches identical payload after platform view is removed and re-attached', () {
+      debugEnableHitTestRegionsOnAllPlatforms = true;
+      binding.automaticPointerInterceptorsEnabled = true;
+
+      final updates = <Float64List>[];
+      final owner = PipelineOwner(onHitTestRegionsUpdate: updates.add);
+      final view = RenderView(
+        configuration: _createViewConfiguration(),
+        view: binding.platformDispatcher.views.single,
+      );
+      owner.rootNode = view;
+      view.prepareInitialFrame();
+      addTearDown(() {
+        owner.rootNode = null;
+        owner.dispose();
+      });
+
+      final RenderBox pvPositioned = _positioned(
+        left: 0,
+        top: 0,
+        width: 300,
+        height: 300,
+        child: _createPlatformView(1),
+      );
+      final RenderBox overlay = _positioned(
+        left: 10,
+        top: 20,
+        width: 100,
+        height: 50,
+        child: _createHitTarget(),
+      );
+      final stack = RenderStack(
+        textDirection: TextDirection.ltr,
+        children: <RenderBox>[pvPositioned, overlay],
+      );
+      view.child = stack;
+
+      void flushFrame() {
+        owner.flushLayout();
+        owner.flushCompositingBits();
+        owner.flushPaint();
+        owner.flushHitTestRegions();
+      }
+
+      // Frame 1: initial payload is dispatched.
+      flushFrame();
+      expect(updates, hasLength(1));
+      expect(
+        updates.last,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+      );
+
+      // Frame 2: removing the platform view dispatches an empty list once and resets last regions.
+      stack.remove(pvPositioned);
+      flushFrame();
+      expect(updates, hasLength(2));
+      expect(updates.last, isEmpty);
+
+      // Frame 3: re-attaching the platform view with the exact same overlay coordinates
+      // dispatches the payload again rather than suppressing it as unchanged.
+      stack.insert(pvPositioned);
+      flushFrame();
+      expect(updates, hasLength(3));
+      expect(
+        updates.last,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
+      );
+    });
   });
 }

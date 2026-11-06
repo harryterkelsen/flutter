@@ -1085,8 +1085,8 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// `FlutterView.updateHitTestRegions`.
   ///
   /// While a platform view with a non-empty size is attached, this is called on
-  /// every
-  /// [flushHitTestRegions] with the latest payload (even if it is unchanged).
+  /// [flushHitTestRegions] whenever the computed payload has changed since the
+  /// previous flush.
   /// The payload is a flat list of groups, one per platform view in paint
   /// order, each encoded as the platform view ID, the number of rectangles
   /// `n`, and then `n` rectangles as left, top, right, bottom values in the
@@ -1722,6 +1722,11 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// the hit-test region pass.
   int _attachedPlatformViewCount = 0;
 
+  /// The number of [PlatformViewRenderBox]es currently attached to this
+  /// pipeline owner.
+  @internal
+  int get attachedPlatformViewCount => _attachedPlatformViewCount;
+
   /// Whether the most recent payload sent to [onHitTestRegionsUpdate] was
   /// non-empty.
   ///
@@ -1777,6 +1782,21 @@ base class PipelineOwner with DiagnosticableTreeMixin {
     return null;
   }
 
+  static bool _float64ListEquals(Float64List? a, Float64List? b) {
+    if (identical(a, b)) {
+      return true;
+    }
+    if (a == null || b == null || a.length != b.length) {
+      return false;
+    }
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// Computes the hit-test regions that overlap any attached platform views
   /// and dispatches the encoded payload to [onHitTestRegionsUpdate].
   ///
@@ -1797,10 +1817,15 @@ base class PipelineOwner with DiagnosticableTreeMixin {
         }
       }
     }
-    _lastHitTestRegions = regions;
+    final bool unchanged = _float64ListEquals(regions, _lastHitTestRegions);
+    if (!unchanged) {
+      _lastHitTestRegions = regions;
+    }
     if (regions != null) {
       _sentNonEmptyHitTestRegions = true;
-      onHitTestRegionsUpdate?.call(regions);
+      if (!unchanged) {
+        onHitTestRegionsUpdate?.call(regions);
+      }
     } else if (_sentNonEmptyHitTestRegions) {
       // Tell the engine once to drop the regions it received earlier.
       _sentNonEmptyHitTestRegions = false;
