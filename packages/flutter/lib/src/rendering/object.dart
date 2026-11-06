@@ -1117,6 +1117,9 @@ base class PipelineOwner with DiagnosticableTreeMixin {
     if (_rootNode == value) {
       return;
     }
+    if (_rootNode != null) {
+      _resetHitTestRegions();
+    }
     _rootNode?.detach();
     _rootNode = value;
     _rootNode?.attach(this);
@@ -1763,23 +1766,30 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// [flushHitTestRegions] pass, or null if no platform view with a non-empty
   /// size was found.
   ///
-  /// If this pipeline owner has no [rootNode] (for example, the root pipeline
-  /// owner in a multi-view app), this returns the first non-null payload of
-  /// its child pipeline owners.
+  /// If this pipeline owner produced no payload of its own (for example, the
+  /// root pipeline owner in a multi-view app, or a parent view whose platform
+  /// views live in a child [ViewAnchor]), this returns the first non-null
+  /// payload of its child pipeline owners.
   @visibleForTesting
   Float64List? get debugLastHitTestRegions {
     if (_lastHitTestRegions != null) {
       return _lastHitTestRegions;
     }
-    if (rootNode == null) {
-      for (final PipelineOwner child in _children) {
-        final Float64List? childRegions = child.debugLastHitTestRegions;
-        if (childRegions != null) {
-          return childRegions;
-        }
+    for (final PipelineOwner child in _children) {
+      final Float64List? childRegions = child.debugLastHitTestRegions;
+      if (childRegions != null) {
+        return childRegions;
       }
     }
     return null;
+  }
+
+  void _resetHitTestRegions() {
+    _lastHitTestRegions = null;
+    if (_sentNonEmptyHitTestRegions) {
+      _sentNonEmptyHitTestRegions = false;
+      onHitTestRegionsUpdate?.call(_emptyHitTestRegions);
+    }
   }
 
   static bool _float64ListEquals(Float64List? a, Float64List? b) {
@@ -1905,6 +1915,7 @@ base class PipelineOwner with DiagnosticableTreeMixin {
     // Not updating the semantics owner here to not disrupt any of its clients
     // in case we get re-attached. If necessary, semantics owner will be updated
     // in "attach", or disposed in "dispose", if not reattached.
+    _resetHitTestRegions();
 
     for (final PipelineOwner child in _children) {
       child.detach();
