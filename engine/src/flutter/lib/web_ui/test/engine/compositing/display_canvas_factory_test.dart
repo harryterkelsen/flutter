@@ -6,6 +6,7 @@ import 'package:test/bootstrap/browser.dart';
 import 'package:test/test.dart';
 import 'package:ui/src/engine.dart';
 
+import '../../common/matchers.dart';
 import '../../common/test_initialization.dart';
 
 void main() {
@@ -13,8 +14,12 @@ void main() {
 }
 
 class DummyDisplayCanvas extends DisplayCanvas {
+  int disposeCount = 0;
+
   @override
-  void dispose() {}
+  void dispose() {
+    disposeCount++;
+  }
 
   final DomElement _element = createDomElement('div');
 
@@ -34,7 +39,9 @@ void testMain() {
 
     test('getCanvas', () {
       final factory = DisplayCanvasFactory<DisplayCanvas>(createCanvas: () => DummyDisplayCanvas());
+      expect(factory.hasBaseCanvas, isFalse);
       expect(factory.baseCanvas, isNotNull);
+      expect(factory.hasBaseCanvas, isTrue);
 
       expect(factory.debugSurfaceCount, equals(1));
 
@@ -87,8 +94,9 @@ void testMain() {
           renderer.rasterizers[implicitView.viewId]!.displayFactory;
 
       // Cause the surface and its canvas to be attached to the page
-      implicitView.dom.sceneHost.prepend(originalFactory.baseCanvas.hostElement);
-      expect(originalFactory.baseCanvas.isConnected, isTrue);
+      final DisplayCanvas baseCanvas = originalFactory.baseCanvas;
+      implicitView.dom.sceneHost.prepend(baseCanvas.hostElement);
+      expect(baseCanvas.isConnected, isTrue);
 
       // Create a few overlay canvases
       final overlays = <DisplayCanvas>[];
@@ -101,9 +109,106 @@ void testMain() {
 
       // Trigger hot restart clean-up logic and check that we indeed clean up.
       debugEmulateHotRestart();
-      expectDisposed(originalFactory.baseCanvas);
+      expectDisposed(baseCanvas);
       overlays.forEach(expectDisposed);
-      expect(originalFactory.debugSurfaceCount, 1);
+      expect(originalFactory.hasBaseCanvas, isFalse);
+      expect(originalFactory.debugSurfaceCount, 0);
+    });
+
+    test('dispose without accessing baseCanvas does not allocate canvas', () {
+      var createdCount = 0;
+      final factory = DisplayCanvasFactory<DisplayCanvas>(
+        createCanvas: () {
+          createdCount++;
+          return DummyDisplayCanvas();
+        },
+      );
+      expect(factory.hasBaseCanvas, isFalse);
+      expect(createdCount, 0);
+
+      factory.dispose();
+      expect(factory.hasBaseCanvas, isFalse);
+      expect(createdCount, 0);
+    });
+
+    test(
+      'inspecting and releasing overlays before accessing baseCanvas does not allocate baseCanvas',
+      () {
+        var createdCount = 0;
+        final factory = DisplayCanvasFactory<DummyDisplayCanvas>(
+          createCanvas: () {
+            createdCount++;
+            return DummyDisplayCanvas();
+          },
+        );
+
+        expect(factory.hasBaseCanvas, isFalse);
+        expect(factory.debugSurfaceCount, 0);
+        final initialVisited = <DisplayCanvas>[];
+        factory.forEachCanvas(initialVisited.add);
+        expect(initialVisited, isEmpty);
+        expect(createdCount, 0);
+
+        final DummyDisplayCanvas overlay = factory.getCanvas();
+        expect(factory.hasBaseCanvas, isFalse);
+        expect(factory.debugSurfaceCount, 1);
+        expect(factory.isLive(overlay), isTrue);
+
+        final liveVisited = <DisplayCanvas>[];
+        factory.forEachCanvas(liveVisited.add);
+        expect(liveVisited, <DisplayCanvas>[overlay]);
+        expect(factory.hasBaseCanvas, isFalse);
+        expect(createdCount, 1);
+
+        factory.releaseCanvas(overlay);
+        expect(factory.isLive(overlay), isFalse);
+        expect(factory.hasBaseCanvas, isFalse);
+        expect(factory.debugSurfaceCount, 1);
+        expect(createdCount, 1);
+      },
+    );
+
+    test('calling dispose multiple times is idempotent', () {
+      var createdCount = 0;
+      final factory = DisplayCanvasFactory<DummyDisplayCanvas>(
+        createCanvas: () {
+          createdCount++;
+          return DummyDisplayCanvas();
+        },
+      );
+
+      final DummyDisplayCanvas base = factory.baseCanvas;
+      final DummyDisplayCanvas cached = factory.getCanvas();
+      final DummyDisplayCanvas live = factory.getCanvas();
+      factory.releaseCanvas(cached);
+      expect(factory.debugSurfaceCount, 3);
+      expect(createdCount, 3);
+
+      factory.dispose();
+      factory.dispose();
+      expect(factory.hasBaseCanvas, isFalse);
+      expect(factory.debugSurfaceCount, 0);
+      expect(createdCount, 3);
+      expect(base.disposeCount, 1);
+      expect(cached.disposeCount, 1);
+      expect(live.disposeCount, 1);
+    });
+
+    test('does not create canvases after dispose', () {
+      var createdCount = 0;
+      final factory = DisplayCanvasFactory<DummyDisplayCanvas>(
+        createCanvas: () {
+          createdCount++;
+          return DummyDisplayCanvas();
+        },
+      );
+
+      factory.dispose();
+      expect(() => factory.baseCanvas, throwsAssertionError);
+      expect(factory.getCanvas, throwsAssertionError);
+      expect(factory.hasBaseCanvas, isFalse);
+      expect(factory.debugSurfaceCount, 0);
+      expect(createdCount, 0);
     });
   });
 }

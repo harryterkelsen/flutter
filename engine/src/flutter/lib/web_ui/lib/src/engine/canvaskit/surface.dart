@@ -118,15 +118,13 @@ abstract class CkSurface extends Surface {
   /// The underlying Skia graphics context.
   SkGrContext? _grContext;
 
-  bool _isDisposed = false;
-
   /// Handles the `webglcontextlost` event by acquiring a new canvas and
   /// recreating the Skia context and surface on it.
   ///
   /// [handledContextLossEvent] completes only once the graphics context has
   /// been recreated (or recovery has failed).
   void onContextLost() {
-    if (_isDisposed) {
+    if (isDisposed) {
       return;
     }
     assert(!isSoftware, 'Received a webglcontextlost event while in software rendering mode.');
@@ -264,8 +262,6 @@ abstract class CkSurface extends Surface {
 
   /// Releases the current [canvas], along with its WebGL context and the Skia
   /// objects backed by it.
-  ///
-  /// The caller must assign a new [canvas] afterwards.
   void _releaseCanvas() {
     _skSurface?.dispose();
     _skSurface = null;
@@ -288,6 +284,9 @@ abstract class CkSurface extends Surface {
     // WebGL context just to lose it.
     if (_glContext > 0) {
       _destroyGlContext(oldCanvas);
+      // Remove the context from CanvasKit's context table so CanvasKit doesn't
+      // keep the canvas alive.
+      canvasKit.deleteContext(_glContext.toDouble());
     }
     _glContext = -1;
     _canvasHasWebGlContext = false;
@@ -361,10 +360,8 @@ abstract class CkSurface extends Surface {
   }
 
   @override
-  void dispose() {
-    _isDisposed = true;
-    _skSurface?.dispose();
-    _skSurface = null;
+  void disposeResources() {
+    _releaseCanvas();
   }
 
   @override
@@ -645,15 +642,6 @@ class CkOffscreenSurface extends CkSurface implements OffscreenSurface {
       onContextLost: onContextLost,
     );
     _replaceCanvas(newCanvas);
-  }
-
-  @override
-  void dispose() {
-    if (_isDisposed) {
-      return;
-    }
-    _releaseCanvasAndContext();
-    super.dispose();
   }
 }
 
