@@ -266,7 +266,7 @@ void testMain() {
         final frameScene = frameBuilder.build() as LayerScene;
 
         final frameTimingRecorder = FrameTimingRecorder();
-        await viewRasterizer.draw(frameScene.layerTree, frameTimingRecorder);
+        await viewRasterizer.draw(frameScene.layerTree, physicalSize, frameTimingRecorder);
 
         final String outcome;
         if (expectedFrameSize != null) {
