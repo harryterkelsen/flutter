@@ -643,7 +643,6 @@ class CkOffscreenSurface extends CkSurface implements OffscreenSurface {
     );
     _replaceCanvas(newCanvas);
   }
-
 }
 
 /// The CanvasKit implementation of [OnscreenSurface].
