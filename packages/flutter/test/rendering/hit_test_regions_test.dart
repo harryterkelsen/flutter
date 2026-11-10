@@ -1507,6 +1507,45 @@ void main() {
     },
   );
 
+  test('children overflowing an empty box claim nothing', () {
+    // Each unclipped stack is laid out at (100, 100) with the given size and
+    // paints a 50x50 hit target at (100, 100, 150, 150), which overflows it
+    // unless the stack is at least that big.
+    const inside = Offset(100.5, 100.5);
+    final cases = <({Size size, List<Rect> expectedRects})>[
+      (size: const Size(1, 1), expectedRects: <Rect>[const Rect.fromLTWH(100, 100, 1, 1)]),
+      (size: Size.zero, expectedRects: <Rect>[]),
+      (size: const Size(0, 50), expectedRects: <Rect>[]),
+      (size: const Size(50, 0), expectedRects: <Rect>[]),
+    ];
+    for (final c in cases) {
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        _at(
+          const Offset(100, 100) & c.size,
+          RenderStack(
+            textDirection: TextDirection.ltr,
+            clipBehavior: Clip.none,
+            children: <RenderBox>[_at(const Rect.fromLTWH(0, 0, 50, 50), _hitTarget())],
+          ),
+        ),
+      ]);
+      expect(
+        regionsFor(stack),
+        _payload(<(int, List<Rect>)>[(1, c.expectedRects)]),
+        reason: '${c.size}',
+      );
+      // The claim matches whether the target can be hit at all.
+      final result = BoxHitTestResult();
+      stack.hitTest(result, position: inside);
+      expect(
+        result.path.any((HitTestEntry entry) => entry.target is RenderPointerListener),
+        c.expectedRects.isNotEmpty,
+        reason: '${c.size}',
+      );
+    }
+  });
+
   test('hitTestsChildrenOutsideBounds is true only for boxes that hit test children outside their bounds', () {
     final link = LayerLink();
     final cases = <({RenderBox box, bool expected})>[
