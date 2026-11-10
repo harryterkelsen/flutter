@@ -320,13 +320,7 @@ Float64List? computeHitTestRegions(RenderObject root) {
       }
       final Matrix4 childTransform = transform.clone();
       node.applyPaintTransform(child, childTransform);
-      visit(
-        child,
-        childTransform,
-        childClip,
-        childHitTestClip,
-        canClaim: childrenCanClaim,
-      );
+      visit(child, childTransform, childClip, childHitTestClip, canClaim: childrenCanClaim);
     });
   }
 
