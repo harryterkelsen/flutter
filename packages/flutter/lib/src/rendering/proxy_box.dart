@@ -4576,9 +4576,10 @@ class RenderFollowerLayer extends RenderProxyBox {
   }
 
   // While unlinked with [showWhenUnlinked] false, the [FollowerLayer] does not
-  // add the child to the scene (and [hitTest] ignores it), so the child is
-  // not painted. Callers that run after compositing, such as the hit-test
-  // region pass, see the [link] state of the current frame.
+  // add the child to the scene (and [hitTest] returns false), so the child is
+  // not painted. [LayerLink.leader] is updated as leader layers attach during
+  // painting, so callers that run after painting, such as the hit-test region
+  // pass, see the [link] state of the current frame.
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     if (link.leader == null && !showWhenUnlinked) {
