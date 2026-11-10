@@ -2379,7 +2379,8 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// The first child visited is painted first (and so is at the bottom), and
   /// the last child visited is painted last (and so is on top). Children that
   /// [paint] does not paint, for example the hidden children of a
-  /// [RenderIndexedStack], the offstage entries of an [Overlay], or children
+  /// [RenderIndexedStack], the child of an offstage [RenderOffstage], the
+  /// offstage entries of an [Overlay], or children
   /// that are laid out but scrolled out of view, must be skipped. Children that
   /// are skipped only because they are fully transparent, but that can still
   /// be hit, may be visited (as [RenderFlow] does).

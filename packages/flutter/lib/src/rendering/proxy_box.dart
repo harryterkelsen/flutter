@@ -3893,6 +3893,15 @@ class RenderOffstage extends RenderProxyBox {
     super.visitChildrenForSemantics(visitor);
   }
 
+  // The child is not painted while offstage (see [paint]).
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    if (offstage) {
+      return;
+    }
+    super.visitChildrenInPaintOrder(visitor);
+  }
+
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
@@ -4564,6 +4573,18 @@ class RenderFollowerLayer extends RenderProxyBox {
     // how the untransformed size and the child's transformed
     // position interact.
     return hitTestChildren(result, position: position);
+  }
+
+  // While unlinked with [showWhenUnlinked] false, the [FollowerLayer] does not
+  // add the child to the scene (and [hitTest] ignores it), so the child is
+  // not painted. Callers that run after compositing, such as the hit-test
+  // region pass, see the [link] state of the current frame.
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    if (link.leader == null && !showWhenUnlinked) {
+      return;
+    }
+    super.visitChildrenInPaintOrder(visitor);
   }
 
   @override
