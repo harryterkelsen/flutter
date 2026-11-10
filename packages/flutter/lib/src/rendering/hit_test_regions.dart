@@ -402,7 +402,8 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       return;
     }
 
-    final bool checksBounds = canClaim &&
+    final bool checksBounds =
+        canClaim &&
         node is RenderBox &&
         node.hasSize &&
         // ignore: invalid_use_of_protected_member
@@ -438,7 +439,8 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         ? groups.length
         : clipMissedAtGroupCount;
     final Rect? descendantsHitTestClip;
-    final bool restrictsChildren = childrenCanClaim &&
+    final bool restrictsChildren =
+        childrenCanClaim &&
         node is RenderBox &&
         node.hasSize &&
         // ignore: invalid_use_of_protected_member
