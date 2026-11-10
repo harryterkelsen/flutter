@@ -4,6 +4,7 @@
 
 /// @docImport 'package:flutter/services.dart';
 ///
+/// @docImport 'proxy_sliver.dart';
 /// @docImport 'stack.dart';
 /// @docImport 'view.dart';
 library;
@@ -62,22 +63,26 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   objects whose paint order differs from their child order (for example,
 ///   viewports, which may paint their slivers in reverse order) override that
 ///   method to visit their children in the order they paint them, and to skip
-///   the children they do not paint (for example, the hidden children of a
-///   [RenderIndexedStack], or children kept alive while scrolled out of view).
+///   the children they do not paint (for example, the child of an offstage
+///   [RenderOffstage] or [RenderSliverOffstage], the child of an unlinked
+///   [RenderFollowerLayer] whose [RenderFollowerLayer.showWhenUnlinked] is
+///   false, the hidden children of a [RenderIndexedStack], or children kept
+///   alive while scrolled out of view). Children left out this way are not
+///   visited at all.
 /// * Each child's transform is computed with [RenderObject.applyPaintTransform]
 ///   and each child's clip with [RenderObject.describeApproximatePaintClip]
 ///   (except for the children of a [RenderViewportBase], which are clipped to
 ///   the viewport's bounds), so the rectangles are in the same coordinate space
 ///   as the root (physical pixels when [root] is a [RenderView]).
-/// * Subtrees that cannot be painted or receive pointer events are skipped:
-///   offstage subtrees ([RenderOffstage]), render boxes that have never been
-///   laid out, and subtrees with singular or non-finite paint transforms are
-///   not visited at all, and no descendant of a render object whose
-///   [RenderObject.hitTestsChildren] is false (such as an ignoring
-///   [RenderIgnorePointer] or an absorbing [RenderAbsorbPointer]) claims a
-///   region. Such a render object may still claim its own bounds, and a
-///   platform view in its subtree still starts a group, because the browser
-///   still delivers pointer events to the platform view.
+/// * Subtrees that cannot be painted or receive pointer events do not claim
+///   regions: render boxes that have never been laid out and subtrees with
+///   singular or non-finite paint transforms are not visited at all, and no
+///   descendant of a render object whose [RenderObject.hitTestsChildren] is
+///   false (such as an ignoring [RenderIgnorePointer] or
+///   [RenderSliverIgnorePointer], or an absorbing [RenderAbsorbPointer])
+///   claims a region. Such a render object may still claim its own bounds,
+///   and a platform view in its subtree still starts a group, because the
+///   browser still delivers pointer events to the platform view.
 /// * A render box claims its bounds if it is an absorbing
 ///   [RenderAbsorbPointer] (its subtree is still visited, as described above,
 ///   so that platform views inside it start their own groups), or if
@@ -163,9 +168,9 @@ Float64List? computeHitTestRegions(RenderObject root) {
   // when pointer events cannot reach [node] because an ancestor's
   // [RenderObject.hitTestsChildren] is false.
   void visit(RenderObject node, Matrix4 transform, Rect? clip, {required bool canClaim}) {
-    // Offstage subtrees and boxes that have never been laid out are neither
-    // painted nor hit tested, and computing clips or transforms may read size.
-    if ((node is RenderOffstage && node.offstage) || (node is RenderBox && !node.hasSize)) {
+    // Boxes that have never been laid out are neither painted nor hit tested,
+    // and computing clips or transforms may read size.
+    if (node is RenderBox && !node.hasSize) {
       return;
     }
 
