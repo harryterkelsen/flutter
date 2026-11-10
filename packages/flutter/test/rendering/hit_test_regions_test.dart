@@ -873,7 +873,9 @@ void main() {
         final children = <RenderObject>[];
         parent.visitChildren(children.add);
         expect(children, hasLength(1), reason: description);
-        parent.visitChildrenInPaintOrder((visited[description] = <RenderObject>[]).add);
+        final inPaintOrder = <RenderObject>[];
+        parent.visitChildrenInPaintOrder(inPaintOrder.add);
+        visited[description] = inPaintOrder;
         painted[description] = paintsChild ? children : <RenderObject>[];
       }
       expect(visited, painted);
