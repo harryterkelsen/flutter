@@ -556,23 +556,35 @@ void main() {
     final controller = ScrollController(initialScrollOffset: 300);
     addTearDown(controller.dispose);
 
-    await tester.pumpWidget(
-      Directionality(
+    Widget build({required bool grouped}) {
+      final slivers = <Widget>[
+        // Occupies scroll offsets 0 to 200, entirely above the viewport.
+        SliverToBoxAdapter(child: SizedBox(height: 200, child: _buildPlatformView(1))),
+        SliverToBoxAdapter(child: SizedBox(height: 1000, child: _buildPlatformView(2))),
+      ];
+      return Directionality(
         textDirection: TextDirection.ltr,
         child: CustomScrollView(
           controller: controller,
           cacheExtent: 0,
-          slivers: <Widget>[
-            // Occupies scroll offsets 0 to 200, entirely above the viewport.
-            SliverToBoxAdapter(child: SizedBox(height: 200, child: _buildPlatformView(1))),
-            SliverToBoxAdapter(child: SizedBox(height: 1000, child: _buildPlatformView(2))),
-          ],
+          slivers: grouped ? <Widget>[SliverMainAxisGroup(slivers: slivers)] : slivers,
         ),
-      ),
-    );
+      );
+    }
 
     // The first sliver is laid out but not visible, so the viewport does not
     // paint it.
+    await tester.pumpWidget(build(grouped: false));
+    expect(
+      RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+      equals(Float64List.fromList(<double>[2.0, 0.0])),
+    );
+
+    // Likewise, a SliverMainAxisGroup does not paint the slivers in it that
+    // are not visible.
+    await tester.pumpWidget(build(grouped: true));
+    expect(controller.offset, 300);
+    expect(find.byType(PlatformViewSurface, skipOffstage: false), findsNWidgets(2));
     expect(
       RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
       equals(Float64List.fromList(<double>[2.0, 0.0])),
@@ -757,8 +769,12 @@ void main() {
       RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
 
       final link = LayerLink();
-      // Without a target, the follower is unlinked.
-      Widget build({required double? targetLeft}) {
+      // Without a target, or with an offstage one, the follower is unlinked.
+      Widget build({
+        required double? targetLeft,
+        bool targetOffstage = false,
+        bool showWhenUnlinked = false,
+      }) {
         return Directionality(
           textDirection: TextDirection.ltr,
           child: Stack(
@@ -770,7 +786,10 @@ void main() {
                   top: 50,
                   width: 60,
                   height: 30,
-                  child: CompositedTransformTarget(link: link, child: const SizedBox.expand()),
+                  child: Offstage(
+                    offstage: targetOffstage,
+                    child: CompositedTransformTarget(link: link, child: const SizedBox.expand()),
+                  ),
                 ),
               Positioned(
                 left: 0,
@@ -779,7 +798,7 @@ void main() {
                 height: 50,
                 child: CompositedTransformFollower(
                   link: link,
-                  showWhenUnlinked: false,
+                  showWhenUnlinked: showWhenUnlinked,
                   offset: const Offset(0, 30),
                   child: const ColoredBox(color: Color(0xFF00FF00)),
                 ),
@@ -814,6 +833,28 @@ void main() {
       expect(
         RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
         equals(Float64List.fromList(<double>[1.0, 1.0, 20.0, 80.0, 120.0, 130.0])),
+      );
+
+      // An offstage target is laid out but not painted, so it does not link
+      // the follower.
+      await tester.pumpWidget(build(targetLeft: 20, targetOffstage: true));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 0.0])),
+      );
+
+      // Shown when unlinked, the follower is painted and hit tested where it
+      // is laid out, without its offset, once its target goes away.
+      await tester.pumpWidget(build(targetLeft: 20, showWhenUnlinked: true));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 20.0, 80.0, 120.0, 130.0])),
+      );
+      await tester.pumpWidget(build(targetLeft: null, showWhenUnlinked: true));
+      expect(tester.getRect(find.byType(ColoredBox)), const Rect.fromLTWH(0, 0, 100, 50));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 0.0, 0.0, 100.0, 50.0])),
       );
     },
   );
@@ -981,6 +1022,27 @@ void main() {
       expect(_lastRegions(), <int, Set<Rect>>{
         1: <Rect>{above},
         2: <Rect>{below, overlay},
+      });
+
+      // Pointer events stay ignored inside a SliverMainAxisGroup.
+      await tester.pumpWidget(
+        build(
+          (Widget sliver) =>
+              SliverMainAxisGroup(slivers: <Widget>[SliverIgnorePointer(sliver: sliver)]),
+        ),
+      );
+      expect(_lastRegions(), <int, Set<Rect>>{
+        1: <Rect>{},
+        2: <Rect>{overlay},
+      });
+
+      // Under an offstage SliverOffstage, the platform view is not painted
+      // either, so it starts no group.
+      await tester.pumpWidget(
+        build((Widget sliver) => SliverOffstage(sliver: SliverIgnorePointer(sliver: sliver))),
+      );
+      expect(_lastRegions(), <int, Set<Rect>>{
+        1: <Rect>{overlay},
       });
     });
   });
