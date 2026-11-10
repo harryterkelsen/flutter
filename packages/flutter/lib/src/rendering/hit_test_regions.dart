@@ -501,6 +501,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       }
       if (groups.isNotEmpty &&
           childClipMissedAtGroupCount != groups.length &&
+          childHitTestClip != null &&
           !overlapsAnyPlatformView(childHitTestClip)) {
         childClipMissedAtGroupCount = groups.length;
       }
