@@ -2424,10 +2424,12 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// is painted on top of a platform view (see [PlatformViewRenderBox]) wants
   /// pointer events, so that pointer events there can be routed to Flutter
   /// rather than to the platform view. It is only consulted for render objects
-  /// painted after a platform view, and never for an ignoring
-  /// [RenderIgnorePointer] or its descendants, for the descendants of an
-  /// absorbing [RenderAbsorbPointer], or for an offstage [RenderOffstage]
-  /// subtree.
+  /// painted after a platform view. It is not consulted for the descendants of
+  /// a render object whose [hitTestsChildren] is false (such as an ignoring
+  /// [RenderIgnorePointer] or an absorbing [RenderAbsorbPointer]), although it
+  /// is still consulted for that render object itself, nor for children that
+  /// [visitChildrenInPaintOrder] skips (such as the child of an offstage
+  /// [RenderOffstage]).
   ///
   /// The rectangles passed to [visitor] are unclipped local rectangles: they do
   /// not need to be clipped to this render object's bounds (they may extend
@@ -2435,8 +2437,8 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// any clip applied by an ancestor. The caller maps each rectangle into
   /// global (physical pixel) coordinates using the ancestors'
   /// [applyPaintTransform], and clips it to the ancestors' paint clips and to
-  /// the bounds of ancestor [RenderBox]es that reject pointer events outside
-  /// of their size.
+  /// the bounds of each ancestor [RenderBox] whose
+  /// [RenderBox.hitTestsChildrenOutsideBounds] is false.
   ///
   /// Only report the rectangles in which this render object accepts pointer
   /// events on its own behalf; regions claimed by its children are collected
@@ -2446,10 +2448,10 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// report rectangles in which it never accepts pointer events, because
   /// pointer events there would then not reach the platform view.
   ///
-  /// The default implementation reports the bounds of a [RenderBox] whose
-  /// [RenderBox.hitTestSelf] returns true at the center of its bounds, and
-  /// nothing otherwise. Override this method in render objects whose hit test
-  /// (for example a custom [RenderBox.hitTest] or [RenderBox.hitTestChildren])
+  /// The default implementation reports nothing. [RenderBox] overrides it to
+  /// report its bounds if [RenderBox.hitTestSelf] returns true at the center
+  /// of its bounds. Override this method in render objects whose hit test (for
+  /// example a custom [RenderBox.hitTest] or [RenderBox.hitTestChildren])
   /// accepts pointer events in a different area than that rule describes.
   ///
   /// {@tool snippet}
@@ -2482,9 +2484,7 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   ///  * [describeApproximatePaintClip], which determines how the rectangles
   ///    reported by descendants are clipped.
   @protected
-  void visitHitTestRegions(HitTestRegionVisitor visitor) {
-    visitDefaultHitTestRegions(this, visitor);
-  }
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {}
 
   /// The object responsible for creating this render object.
   ///
