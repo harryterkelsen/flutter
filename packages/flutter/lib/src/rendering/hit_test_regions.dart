@@ -4,6 +4,7 @@
 
 /// @docImport 'package:flutter/services.dart';
 ///
+/// @docImport 'proxy_box.dart';
 /// @docImport 'proxy_sliver.dart';
 /// @docImport 'stack.dart';
 /// @docImport 'view.dart';
@@ -15,7 +16,6 @@ import 'package:vector_math/vector_math_64.dart';
 import 'box.dart';
 import 'object.dart';
 import 'platform_view.dart';
-import 'proxy_box.dart';
 import 'viewport.dart';
 
 /// The hit-test regions collected for a single [PlatformViewRenderBox].
@@ -92,15 +92,16 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   as described above, so that platform views inside it start their own
 ///   groups.
 /// * Besides the paint clip, a claimed rectangle is clipped to the bounds of
-///   each ancestor [RenderBox] that rejects pointer events outside of its
-///   size, which is what [RenderBox.hitTest] does by default, so that a child
-///   overflowing such an ancestor only claims the part that can be hit.
-///   [RenderTransform], [RenderFractionalTranslation], and
-///   [RenderFollowerLayer] hit test their children without checking their own
-///   size, so they do not restrict their descendants' regions. This
-///   restriction does not apply to platform views (which receive pointer
-///   events wherever they are visible), nor to a render object's own regions
-///   (which may extend beyond its bounds).
+///   each ancestor [RenderBox] whose [RenderBox.hitTestsChildrenOutsideBounds]
+///   is false, because such a box rejects pointer events outside of its size
+///   before hit testing its children (as [RenderBox.hitTest] does by
+///   default), so that a child overflowing it only claims the part that can be
+///   hit. Boxes that hit test their children without checking their own size
+///   (for example, [RenderTransform]) return true from
+///   [RenderBox.hitTestsChildrenOutsideBounds], so they do not restrict their
+///   descendants' regions. This restriction does not apply to platform views
+///   (which receive pointer events wherever they are visible), nor to a render
+///   object's own regions (which may extend beyond its bounds).
 /// * A claimed rectangle is kept only if it is non-empty after clipping and
 ///   overlaps at least one platform view painted before it. It is attributed
 ///   to the most recently painted platform view (even if it only overlaps an
@@ -178,21 +179,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
       return parent.clipBehavior == Clip.none ? null : Offset.zero & parent.size;
     }
     return parent.describeApproximatePaintClip(child);
-  }
-
-  // Whether [node] rejects pointer events outside of its own bounds before
-  // hit testing its children, as [RenderBox.hitTest] does by default. The
-  // exceptions are the framework's render boxes whose hitTest override
-  // forwards to their children without checking `size.contains`; extend this
-  // list when adding such a box. Other boxes that skip the check are
-  // restricted conservatively (their descendants under-claim; they never
-  // over-claim).
-  bool hitTestsWithinBounds(RenderObject node) {
-    return node is RenderBox &&
-        node.hasSize &&
-        node is! RenderTransform &&
-        node is! RenderFractionalTranslation &&
-        node is! RenderFollowerLayer;
   }
 
   // Maps [localRect] by [transform] into the root coordinate space.
@@ -295,11 +281,21 @@ Float64List? computeHitTestRegions(RenderObject root) {
       node.visitHitTestRegions(claimRegion);
     }
 
-    // A box that only hit tests within its bounds restricts where its
-    // descendants can be hit, even if it does not clip their painting.
-    final Rect? descendantsHitTestClip = hitTestsWithinBounds(node)
-        ? intersectClip(hitTestClip, toGlobal(Offset.zero & (node as RenderBox).size, transform))
-        : hitTestClip;
+    // A box whose hitTest rejects positions outside of its bounds before hit
+    // testing its children restricts where its descendants can be hit, even
+    // if it does not clip their painting.
+    //
+    // hitTestsChildrenOutsideBounds is protected, but whether a box's
+    // children can be hit outside of its bounds is exactly what this pass
+    // needs to know.
+    var descendantsHitTestClip = hitTestClip;
+    // ignore: invalid_use_of_protected_member
+    if (node is RenderBox && node.hasSize && !node.hitTestsChildrenOutsideBounds) {
+      descendantsHitTestClip = intersectClip(
+        hitTestClip,
+        toGlobal(Offset.zero & node.size, transform),
+      );
+    }
 
     // Descend into the painted children in paint order, accumulating each
     // child's paint transform and clip.
@@ -350,23 +346,4 @@ Float64List? computeHitTestRegions(RenderObject root) {
     }
   }
   return payload;
-}
-
-/// Reports the bounds of [renderObject] to [visitor] if it is a [RenderBox]
-/// whose [RenderBox.hitTestSelf] returns true at the center of its bounds.
-///
-/// This is the default implementation of [RenderObject.visitHitTestRegions].
-void visitDefaultHitTestRegions(RenderObject renderObject, HitTestRegionVisitor visitor) {
-  if (renderObject is! RenderBox || !renderObject.hasSize || renderObject.size.isEmpty) {
-    return;
-  }
-  final Size size = renderObject.size;
-  // hitTestSelf is protected, but whether a box accepts a pointer event at
-  // its center is the generic rule for where it claims pointer events.
-  // ignore: invalid_use_of_protected_member
-  if (renderObject.hitTestSelf(size.center(Offset.zero))) {
-    // The box itself accepts pointer events (for example, it paints an opaque
-    // background or handles gestures), so its bounds are a region.
-    visitor(Offset.zero & size);
-  }
 }
