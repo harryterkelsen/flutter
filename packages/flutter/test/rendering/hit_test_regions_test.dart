@@ -158,6 +158,34 @@ class _RenderChildHitTestGate extends RenderProxyBoxWithHitTestBehavior {
   }
 }
 
+/// A proxy box that, like [RenderTransform], forwards pointer events to its
+/// child without checking its own bounds while [outsideBounds] is true, and
+/// says so through [hitTestsChildrenOutsideBounds].
+///
+/// It is not a render object type the framework knows about, so the
+/// hit-test region pass can only learn whether its children can be hit
+/// outside its bounds through [hitTestsChildrenOutsideBounds].
+class _RenderHitTestOutsideBoundsGate extends RenderProxyBox {
+  _RenderHitTestOutsideBoundsGate({required this.outsideBounds, RenderBox? child}) : super(child);
+
+  bool outsideBounds;
+
+  @override
+  bool get hitTestsChildrenOutsideBounds => outsideBounds;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (!outsideBounds && !size.contains(position)) {
+      return false;
+    }
+    if (hitTestChildren(result, position: position)) {
+      result.add(BoxHitTestEntry(this, position));
+      return true;
+    }
+    return false;
+  }
+}
+
 ViewConfiguration _viewConfiguration({double devicePixelRatio = 1.0}) {
   final logicalConstraints = BoxConstraints.tight(const Size(800.0, 600.0));
   return ViewConfiguration(
@@ -1358,56 +1386,141 @@ void main() {
     );
   });
 
-  test('children overflowing an ancestor claim only where the ancestor hit tests them', () {
-    final RenderStack stack = _stack(<RenderBox>[
-      _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
-      // An unclipped 100x100 stack whose child paints at (50, 60, 150, 160),
-      // but RenderStack.hitTest rejects positions outside the stack.
-      _at(
-        const Rect.fromLTWH(0, 0, 100, 100),
-        RenderStack(
-          textDirection: TextDirection.ltr,
-          clipBehavior: Clip.none,
-          children: <RenderBox>[_at(const Rect.fromLTWH(50, 60, 100, 100), _hitTarget())],
-        ),
-      ),
-      // A 50x50 overflow box whose centered 100x100 child paints at
-      // (175, -25, 275, 75), but the overflow box rejects positions outside
-      // itself.
-      _at(
-        const Rect.fromLTWH(200, 0, 50, 50),
-        RenderConstrainedOverflowBox(
-          minWidth: 100,
-          maxWidth: 100,
-          minHeight: 100,
-          maxHeight: 100,
-          child: _hitTarget(),
-        ),
-      ),
-      // RenderTransform.hitTest does not check its own bounds, so the child
-      // painted outside them at (320, 100, 370, 150) is hit tested there.
-      _at(
-        const Rect.fromLTWH(300, 0, 50, 50),
-        RenderTransform(
-          transform: Matrix4.translationValues(20.0, 100.0, 0.0),
-          child: _hitTarget(),
-        ),
-      ),
-    ]);
+  test(
+    'children overflowing a box claim outside it only if its hitTestsChildrenOutsideBounds is true',
+    () {
+      // Each box is laid out at (100, 100, 150, 150) over a platform view, and
+      // paints a hit target that extends beyond the bottom right of the box.
+      // Where the box hit tests only within its bounds, the target can only be
+      // hit, and so only claims, within (100, 100, 150, 150).
+      const boxRect = Rect.fromLTWH(100, 100, 50, 50);
+      // Outside the box, but inside every row's painted hit target.
+      const outside = Offset(160, 160);
+      // A hit target filling its parent, painted (and hit tested) shifted by
+      // half its size, at (125, 125, 175, 175) when its parent is at boxRect.
+      RenderBox shiftedHitTarget() =>
+          RenderFractionalTranslation(translation: const Offset(0.5, 0.5), child: _hitTarget());
+      bool hitsTargetAt(RenderBox root, Offset position) {
+        final result = BoxHitTestResult();
+        root.hitTest(result, position: position);
+        return result.path.any((HitTestEntry entry) => entry.target is RenderPointerListener);
+      }
 
-    expect(
-      regionsFor(stack),
-      _payload(<(int, List<Rect>)>[
+      final cases = <({String description, RenderBox Function() box, Rect expectedRect})>[
+        // An unclipped stack whose child paints at (125, 125, 175, 175).
         (
-          1,
-          <Rect>[
-            const Rect.fromLTRB(50, 60, 100, 100),
-            const Rect.fromLTRB(200, 0, 250, 50),
-            const Rect.fromLTRB(320, 100, 370, 150),
-          ],
+          description: 'RenderStack',
+          box: () => RenderStack(
+            textDirection: TextDirection.ltr,
+            clipBehavior: Clip.none,
+            children: <RenderBox>[_at(const Rect.fromLTWH(25, 25, 50, 50), _hitTarget())],
+          ),
+          expectedRect: const Rect.fromLTRB(125, 125, 150, 150),
         ),
-      ]),
-    );
+        // A centered 100x100 child, painted at (75, 75, 175, 175).
+        (
+          description: 'RenderConstrainedOverflowBox',
+          box: () => RenderConstrainedOverflowBox(
+            minWidth: 100,
+            maxWidth: 100,
+            minHeight: 100,
+            maxHeight: 100,
+            child: _hitTarget(),
+          ),
+          expectedRect: boxRect,
+        ),
+        // A SizedBox.
+        (
+          description: 'RenderConstrainedBox',
+          box: () => RenderConstrainedBox(
+            additionalConstraints: BoxConstraints.tight(boxRect.size),
+            child: shiftedHitTarget(),
+          ),
+          expectedRect: const Rect.fromLTRB(125, 125, 150, 150),
+        ),
+        // A Transform.translate, whose child paints at (125, 125, 175, 175).
+        (
+          description: 'RenderTransform',
+          box: () => RenderTransform(
+            transform: Matrix4.translationValues(25.0, 25.0, 0.0),
+            child: _hitTarget(),
+          ),
+          expectedRect: const Rect.fromLTRB(125, 125, 175, 175),
+        ),
+      ];
+
+      for (final c in cases) {
+        final RenderStack stack = _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+          _at(boxRect, c.box()),
+        ]);
+        expect(
+          regionsFor(stack),
+          _payload(<(int, List<Rect>)>[
+            (1, <Rect>[c.expectedRect]),
+          ]),
+          reason: c.description,
+        );
+        // The claim matches where the target is actually hit.
+        expect(
+          hitsTargetAt(stack, outside),
+          c.expectedRect.contains(outside),
+          reason: c.description,
+        );
+      }
+
+      // A box type the pass knows nothing about, whose children are clipped to
+      // its bounds exactly while its hitTestsChildrenOutsideBounds is false,
+      // read anew on every frame.
+      final proxy = _RenderHitTestOutsideBoundsGate(
+        outsideBounds: false,
+        child: shiftedHitTarget(),
+      );
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        _at(boxRect, proxy),
+      ]);
+      expect(
+        regionsFor(stack),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(125, 125, 150, 150)]),
+        ]),
+      );
+      expect(hitsTargetAt(stack, outside), isFalse);
+
+      proxy.outsideBounds = true;
+      expect(
+        regionsAfterFrame(),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(125, 125, 175, 175)]),
+        ]),
+      );
+      expect(hitsTargetAt(stack, outside), isTrue);
+
+      proxy.outsideBounds = false;
+      expect(
+        regionsAfterFrame(),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(125, 125, 150, 150)]),
+        ]),
+      );
+    },
+  );
+
+  test('hitTestsChildrenOutsideBounds is true only for boxes that hit test children outside their bounds', () {
+    final link = LayerLink();
+    final cases = <({RenderBox box, bool expected})>[
+      (box: RenderConstrainedBox(additionalConstraints: const BoxConstraints()), expected: false),
+      (box: _stack(<RenderBox>[]), expected: false),
+      (box: RenderConstrainedOverflowBox(), expected: false),
+      (box: RenderTransform(transform: Matrix4.identity()), expected: true),
+      (box: RenderFractionalTranslation(translation: Offset.zero), expected: true),
+      (box: RenderFollowerLayer(link: link), expected: true),
+    ];
+    for (final c in cases) {
+      // ignore: invalid_use_of_protected_member
+      expect(c.box.hitTestsChildrenOutsideBounds, c.expected, reason: '${c.box.runtimeType}');
+    }
   });
 
   test('visitHitTestRegions rects claim a region only if they contain points after clipping', () {
