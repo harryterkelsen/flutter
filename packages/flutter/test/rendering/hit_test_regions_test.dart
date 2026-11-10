@@ -840,6 +840,45 @@ void main() {
       expect(regions, _payload(<(int, List<Rect>)>[(1, <Rect>[])]));
     });
 
+    test('render objects visit in paint order only the children they paint', () {
+      RenderBox box() => RenderConstrainedBox(additionalConstraints: const BoxConstraints());
+      // Each parent has one child; the flag is whether the parent paints it.
+      final cases = <(String, RenderObject, bool)>[
+        ('offstage RenderOffstage', RenderOffstage(child: box()), false),
+        ('onstage RenderOffstage', RenderOffstage(offstage: false, child: box()), true),
+        (
+          'offstage RenderSliverOffstage',
+          RenderSliverOffstage(sliver: RenderSliverToBoxAdapter()),
+          false,
+        ),
+        (
+          'onstage RenderSliverOffstage',
+          RenderSliverOffstage(offstage: false, sliver: RenderSliverToBoxAdapter()),
+          true,
+        ),
+        (
+          'unlinked RenderFollowerLayer hidden when unlinked',
+          RenderFollowerLayer(link: LayerLink(), showWhenUnlinked: false, child: box()),
+          false,
+        ),
+        (
+          'unlinked RenderFollowerLayer shown when unlinked',
+          RenderFollowerLayer(link: LayerLink(), child: box()),
+          true,
+        ),
+      ];
+      final visited = <String, List<RenderObject>>{};
+      final painted = <String, List<RenderObject>>{};
+      for (final (String description, RenderObject parent, bool paintsChild) in cases) {
+        final children = <RenderObject>[];
+        parent.visitChildren(children.add);
+        expect(children, hasLength(1), reason: description);
+        parent.visitChildrenInPaintOrder((visited[description] = <RenderObject>[]).add);
+        painted[description] = paintsChild ? children : <RenderObject>[];
+      }
+      expect(visited, painted);
+    });
+
     test(
       'an AbsorbPointer claims its own bounds, instead of its children, only while absorbing',
       () {
