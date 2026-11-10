@@ -843,13 +843,14 @@ void main() {
         equals(Float64List.fromList(<double>[1.0, 0.0])),
       );
 
-      // Shown when unlinked, the follower is painted and hit tested where it
-      // is laid out, without its offset, once its target goes away.
+      // While linked, showWhenUnlinked makes no difference.
       await tester.pumpWidget(build(targetLeft: 20, showWhenUnlinked: true));
       expect(
         RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
         equals(Float64List.fromList(<double>[1.0, 1.0, 20.0, 80.0, 120.0, 130.0])),
       );
+      // Shown when unlinked, the follower is painted and hit tested where it
+      // is laid out, without its offset, once its target goes away.
       await tester.pumpWidget(build(targetLeft: null, showWhenUnlinked: true));
       expect(tester.getRect(find.byType(ColoredBox)), const Rect.fromLTWH(0, 0, 100, 50));
       expect(
@@ -937,11 +938,11 @@ void main() {
 
     /// Platform view 1 fills the view. Over it, a viewport shows [wrap]
     /// applied to a sliver holding a hit target at [above], platform view 2 in
-    /// the 200 pixels below it and a hit target at [below]. Last, a hit target at
-    /// [overlay], over both platform views.
+    /// the 200 pixels below it and a hit target at [below]. Last, a hit target
+    /// at [overlay] sits over both platform views.
     ///
-    /// The sliver is padded so that the viewport paints the padding even when
-    /// [wrap] gives the sliver no extent.
+    /// The sliver is padded so that the viewport still paints, and so visits,
+    /// the wrapper even when [wrap] gives the sliver no extent.
     Widget build(Widget Function(Widget sliver) wrap) {
       return Directionality(
         textDirection: TextDirection.ltr,

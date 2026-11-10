@@ -456,7 +456,9 @@ class RenderSliverMainAxisGroup extends RenderSliver
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     RenderSliver? child = lastChild;
     while (child != null) {
-      if (child.geometry!.visible) {
+      // Unlike [paint], this can run before a newly inserted child has been
+      // laid out (for example, in a test frame that stops before layout).
+      if (child.geometry?.visible ?? false) {
         visitor(child);
       }
       child = childBefore(child);

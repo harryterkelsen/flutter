@@ -67,8 +67,7 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   [RenderOffstage] or [RenderSliverOffstage], the child of an unlinked
 ///   [RenderFollowerLayer] whose [RenderFollowerLayer.showWhenUnlinked] is
 ///   false, the hidden children of a [RenderIndexedStack], or children kept
-///   alive while scrolled out of view). Children left out this way are not
-///   visited at all.
+///   alive while scrolled out of view).
 /// * Each child's transform is computed with [RenderObject.applyPaintTransform]
 ///   and each child's clip with [RenderObject.describeApproximatePaintClip]
 ///   (except for the children of a [RenderViewportBase], which are clipped to
