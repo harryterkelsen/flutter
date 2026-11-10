@@ -3984,8 +3984,9 @@ class RenderAbsorbPointer extends RenderProxyBox {
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
     // While absorbing, every pointer event within this box's bounds is
-    // swallowed, whether or not its child would accept it. (The hit-region
-    // pass also skips this box's subtree while it is absorbing.)
+    // swallowed, whether or not its child would accept it. (Its descendants
+    // claim no regions while it is absorbing, because hitTestsChildren is
+    // false.)
     if (absorbing) {
       if (hasSize && !size.isEmpty) {
         visitor(Offset.zero & size);

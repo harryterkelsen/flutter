@@ -2426,17 +2426,17 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// rather than to the platform view. It is only consulted for render objects
   /// painted after a platform view. It is not consulted for the descendants of
   /// a render object whose [hitTestsChildren] is false (such as an ignoring
-  /// [RenderIgnorePointer] or an absorbing [RenderAbsorbPointer]), although it
-  /// is still consulted for that render object itself, nor for children that
-  /// [visitChildrenInPaintOrder] skips (such as the child of an offstage
-  /// [RenderOffstage]).
+  /// [RenderIgnorePointer] or an absorbing [RenderAbsorbPointer]), nor for
+  /// children that [visitChildrenInPaintOrder] skips (such as the child of an
+  /// offstage [RenderOffstage]). It is still consulted for a render object
+  /// whose [hitTestsChildren] is false.
   ///
   /// The rectangles passed to [visitor] are unclipped local rectangles: they do
   /// not need to be clipped to this render object's bounds (they may extend
   /// beyond them, if this render object accepts pointer events there), nor to
-  /// any clip applied by an ancestor. The caller maps each rectangle into
-  /// global (physical pixel) coordinates using the ancestors'
-  /// [applyPaintTransform], and clips it to the ancestors' paint clips and to
+  /// any clip applied by an ancestor. The caller maps each rectangle into the
+  /// coordinate space of the root of the walk (physical pixels for a
+  /// [RenderView]) using the ancestors' [applyPaintTransform], and clips it to the ancestors' paint clips and to
   /// the bounds of each ancestor [RenderBox] whose
   /// [RenderBox.hitTestsChildrenOutsideBounds] is false.
   ///
@@ -2446,7 +2446,12 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// the exact area in which this render object accepts pointer events (for
   /// example, the bounding box of a circle), but a render object should not
   /// report rectangles in which it never accepts pointer events, because
-  /// pointer events there would then not reach the platform view.
+  /// pointer events there would then not reach the platform view. For
+  /// example, a [RenderBox] whose [RenderBox.hitTest] checks its size should
+  /// not report rectangles outside of its bounds.
+  ///
+  /// The [visitor] must be called synchronously, and must not be retained
+  /// after this method returns.
   ///
   /// The default implementation reports nothing. [RenderBox] overrides it to
   /// report its bounds if [RenderBox.hitTestSelf] returns true at the center
@@ -2457,8 +2462,9 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// {@tool snippet}
   ///
   /// A render box that only accepts pointer events within a 10 pixel radius of
-  /// its center can report just that circle's bounding box, rather than its
-  /// whole bounds:
+  /// its center can report just that circle's bounding box (within its
+  /// bounds, because [RenderBox.hitTest] rejects positions outside of them),
+  /// rather than its whole bounds:
   ///
   /// ```dart
   /// class RenderDot extends RenderBox {
@@ -2471,7 +2477,8 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   ///
   ///   @override
   ///   void visitHitTestRegions(HitTestRegionVisitor visitor) {
-  ///     visitor(Rect.fromCircle(center: size.center(Offset.zero), radius: 10.0));
+  ///     final Rect dot = Rect.fromCircle(center: size.center(Offset.zero), radius: 10.0);
+  ///     visitor(dot.intersect(Offset.zero & size));
   ///   }
   /// }
   /// ```

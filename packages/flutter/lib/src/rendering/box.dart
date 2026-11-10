@@ -3009,10 +3009,11 @@ abstract class RenderBox extends RenderObject {
   /// Whether this box's children can receive pointer events at positions
   /// outside of this box's bounds.
   ///
-  /// This is true when this box's [hitTest] calls [hitTestChildren] without
-  /// first checking that the position is within its [size], as [RenderBox.hitTest]
-  /// does. For example, [RenderTransform] hit tests its child wherever the
-  /// child is painted, even outside of the [RenderTransform]'s own bounds.
+  /// This should be true when this box's [hitTest] calls [hitTestChildren]
+  /// without first checking that the position is within its [size] (a check
+  /// that the default [RenderBox.hitTest] performs). For example,
+  /// [RenderTransform] hit tests its child wherever the child is painted, even
+  /// outside of the [RenderTransform]'s own bounds.
   ///
   /// This is used by the pass that, on the web, finds where Flutter content
   /// painted on top of a platform view (see [PlatformViewRenderBox]) accepts
@@ -3024,12 +3025,17 @@ abstract class RenderBox extends RenderObject {
   /// check should override this to return true. The value must agree with
   /// [hitTest]: if it is false while [hitTest] hits children outside of this
   /// box's bounds, pointer events there go to the platform view instead of
-  /// Flutter.
+  /// Flutter, and if it is true while [hitTest] rejects positions outside of
+  /// this box's bounds, pointer events there go to Flutter instead of the
+  /// platform view.
   @protected
   bool get hitTestsChildrenOutsideBounds => false;
 
   /// Reports this box's bounds if [hitTestSelf] returns true at the center of
   /// its bounds, and nothing otherwise.
+  ///
+  /// Subclasses whose hit test accepts pointer events in a different area
+  /// should override this; see [RenderObject.visitHitTestRegions].
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
     if (!hasSize || size.isEmpty) {
