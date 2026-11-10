@@ -398,9 +398,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     }
 
     if (allPlatformViewsVisited() &&
-        (currentGroupFullyCovered ||
-            !canClaim ||
-            clipMissedAtGroupCount == groups.length)) {
+        (currentGroupFullyCovered || !canClaim || clipMissedAtGroupCount == groups.length)) {
       return;
     }
 
@@ -540,15 +538,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     currentClipMissedAtGroupCount = clipMissedAtGroupCount;
   };
 
-  visit(
-    root,
-    0,
-    transformStack[0],
-    null,
-    null,
-    canClaim: true,
-    clipMissedAtGroupCount: null,
-  );
+  visit(root, 0, transformStack[0], null, null, canClaim: true, clipMissedAtGroupCount: null);
 
   if (groups.isEmpty) {
     return null;
