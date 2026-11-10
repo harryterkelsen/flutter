@@ -757,19 +757,21 @@ void main() {
       RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
 
       final link = LayerLink();
-      Widget build({required double targetLeft}) {
+      // Without a target, the follower is unlinked.
+      Widget build({required double? targetLeft}) {
         return Directionality(
           textDirection: TextDirection.ltr,
           child: Stack(
             children: <Widget>[
               Positioned(left: 0, top: 0, width: 400, height: 400, child: _buildPlatformView(1)),
-              Positioned(
-                left: targetLeft,
-                top: 50,
-                width: 60,
-                height: 30,
-                child: CompositedTransformTarget(link: link, child: const SizedBox.expand()),
-              ),
+              if (targetLeft != null)
+                Positioned(
+                  left: targetLeft,
+                  top: 50,
+                  width: 60,
+                  height: 30,
+                  child: CompositedTransformTarget(link: link, child: const SizedBox.expand()),
+                ),
               Positioned(
                 left: 0,
                 top: 0,
@@ -800,6 +802,19 @@ void main() {
         RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
         equals(Float64List.fromList(<double>[1.0, 1.0, 200.0, 80.0, 300.0, 130.0])),
       );
+
+      // Unlinked with showWhenUnlinked false, the follower is neither painted
+      // nor hit tested, until it is linked again.
+      await tester.pumpWidget(build(targetLeft: null));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 0.0])),
+      );
+      await tester.pumpWidget(build(targetLeft: 20));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(Float64List.fromList(<double>[1.0, 1.0, 20.0, 80.0, 120.0, 130.0])),
+      );
     },
   );
 
@@ -813,25 +828,26 @@ void main() {
       final controller = ScrollController(initialScrollOffset: 150);
       addTearDown(controller.dispose);
 
-      Widget build(SliverPaintOrder paintOrder) {
+      Widget build(SliverPaintOrder paintOrder, {bool grouped = false}) {
+        final slivers = <Widget>[
+          const PinnedHeaderSliver(
+            child: SizedBox(height: 100, child: ColoredBox(color: Color(0xFF0000FF))),
+          ),
+          SliverFixedExtentList(
+            itemExtent: 250,
+            delegate: SliverChildBuilderDelegate(
+              (BuildContext context, int index) => _buildPlatformView(index + 1),
+              childCount: 10,
+            ),
+          ),
+        ];
         return Directionality(
           textDirection: TextDirection.ltr,
           child: CustomScrollView(
             controller: controller,
             cacheExtent: 0,
             paintOrder: paintOrder,
-            slivers: <Widget>[
-              const PinnedHeaderSliver(
-                child: SizedBox(height: 100, child: ColoredBox(color: Color(0xFF0000FF))),
-              ),
-              SliverFixedExtentList(
-                itemExtent: 250,
-                delegate: SliverChildBuilderDelegate(
-                  (BuildContext context, int index) => _buildPlatformView(index + 1),
-                  childCount: 10,
-                ),
-              ),
-            ],
+            slivers: grouped ? <Widget>[SliverMainAxisGroup(slivers: slivers)] : slivers,
           ),
         );
       }
@@ -859,8 +875,115 @@ void main() {
           Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 0.0, 0.0, 800.0, 100.0]),
         ),
       );
+
+      // A SliverMainAxisGroup paints its first sliver on top whatever the
+      // viewport's paint order, so the header in it claims over the list.
+      await tester.pumpWidget(build(SliverPaintOrder.lastIsTop, grouped: true));
+      expect(tester.getRect(find.byType(ColoredBox)), const Rect.fromLTWH(0, 0, 800, 100));
+      expect(
+        RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions,
+        equals(
+          Float64List.fromList(<double>[1.0, 0.0, 2.0, 0.0, 3.0, 1.0, 0.0, 0.0, 800.0, 100.0]),
+        ),
+      );
     },
   );
+
+  group('sliver wrappers over platform views', () {
+    const above = Rect.fromLTWH(0, 10, 800, 100);
+    const below = Rect.fromLTWH(0, 310, 800, 100);
+    const overlay = Rect.fromLTWH(10, 150, 50, 50);
+
+    /// Platform view 1 fills the view. Over it, a viewport shows [wrap]
+    /// applied to a sliver holding a hit target at [above], platform view 2 in
+    /// the 200 pixels below it and a hit target at [below]. Last, a hit target at
+    /// [overlay], over both platform views.
+    ///
+    /// The sliver is padded so that the viewport paints the padding even when
+    /// [wrap] gives the sliver no extent.
+    Widget build(Widget Function(Widget sliver) wrap) {
+      return Directionality(
+        textDirection: TextDirection.ltr,
+        child: Stack(
+          children: <Widget>[
+            Positioned.fill(child: _platformView(1)),
+            Positioned.fill(
+              child: CustomScrollView(
+                hitTestBehavior: HitTestBehavior.deferToChild,
+                slivers: <Widget>[
+                  SliverPadding(
+                    padding: const EdgeInsets.only(top: 10),
+                    sliver: wrap(
+                      SliverToBoxAdapter(
+                        child: Column(
+                          children: <Widget>[
+                            const SizedBox(
+                              height: 100,
+                              child: Listener(behavior: HitTestBehavior.opaque),
+                            ),
+                            SizedBox(height: 200, child: _platformView(2)),
+                            const SizedBox(
+                              height: 100,
+                              child: Listener(behavior: HitTestBehavior.opaque),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Positioned.fromRect(
+              rect: overlay,
+              child: const Listener(behavior: HitTestBehavior.opaque),
+            ),
+          ],
+        ),
+      );
+    }
+
+    testWidgets('an offstage SliverOffstage contributes nothing, and an onstage one is '
+        'transparent', (WidgetTester tester) async {
+      enablePass(tester);
+
+      await tester.pumpWidget(
+        build((Widget sliver) => SliverOffstage(offstage: false, sliver: sliver)),
+      );
+      expect(_lastRegions().keys, <int>[1, 2]);
+      expect(_lastRegions(), <int, Set<Rect>>{
+        1: <Rect>{above},
+        2: <Rect>{below, overlay},
+      });
+
+      // Platform view 2 is laid out but not painted, so it starts no group.
+      await tester.pumpWidget(build((Widget sliver) => SliverOffstage(sliver: sliver)));
+      expect(find.byType(PlatformViewSurface, skipOffstage: false), findsNWidgets(2));
+      expect(_lastRegions(), <int, Set<Rect>>{
+        1: <Rect>{overlay},
+      });
+    });
+
+    testWidgets('content of an ignoring SliverIgnorePointer claims nothing, but its platform '
+        'views still start groups', (WidgetTester tester) async {
+      enablePass(tester);
+
+      await tester.pumpWidget(build((Widget sliver) => SliverIgnorePointer(sliver: sliver)));
+      expect(_lastRegions().keys, <int>[1, 2]);
+      expect(_lastRegions(), <int, Set<Rect>>{
+        1: <Rect>{},
+        2: <Rect>{overlay},
+      });
+
+      await tester.pumpWidget(
+        build((Widget sliver) => SliverIgnorePointer(ignoring: false, sliver: sliver)),
+      );
+      expect(_lastRegions(), <int, Set<Rect>>{
+        1: <Rect>{above},
+        2: <Rect>{below, overlay},
+      });
+    });
+  });
 
   testWidgets('platform view laid out in the cache extent of a reversed list starts no group', (
     WidgetTester tester,
