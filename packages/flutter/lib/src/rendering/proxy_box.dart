@@ -2715,6 +2715,10 @@ class RenderTransform extends RenderProxyBox {
     return hitTestChildren(result, position: position);
   }
 
+  // [hitTest] does not check whether the position is within this box's size.
+  @override
+  bool get hitTestsChildrenOutsideBounds => true;
+
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
     assert(!transformHitTests || _effectiveTransform != null);
@@ -3099,6 +3103,10 @@ class RenderFractionalTranslation extends RenderProxyBox {
     // position interact.
     return hitTestChildren(result, position: position);
   }
+
+  // [hitTest] does not check whether the position is within this box's size.
+  @override
+  bool get hitTestsChildrenOutsideBounds => true;
 
   /// When set to true, hit tests are performed based on the position of the
   /// child as it is painted. When set to false, hit tests are performed
@@ -4589,6 +4597,10 @@ class RenderFollowerLayer extends RenderProxyBox {
     // position interact.
     return hitTestChildren(result, position: position);
   }
+
+  // [hitTest] does not check whether the position is within this box's size.
+  @override
+  bool get hitTestsChildrenOutsideBounds => true;
 
   // While unlinked with [showWhenUnlinked] false, the [FollowerLayer] does not
   // add the child to the scene (and [hitTest] returns false), so the child is

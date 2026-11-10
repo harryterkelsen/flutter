@@ -6,6 +6,7 @@
 ///
 /// @docImport 'image.dart';
 /// @docImport 'paragraph.dart';
+/// @docImport 'platform_view.dart';
 /// @docImport 'proxy_box.dart';
 /// @docImport 'shifted_box.dart';
 /// @docImport 'sliver.dart';
@@ -3004,6 +3005,40 @@ abstract class RenderBox extends RenderObject {
   /// function, then you don't need to implement this function.
   @protected
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) => false;
+
+  /// Whether this box's children can receive pointer events at positions
+  /// outside of this box's bounds.
+  ///
+  /// This is true when this box's [hitTest] calls [hitTestChildren] without
+  /// first checking that the position is within its [size], as [RenderBox.hitTest]
+  /// does. For example, [RenderTransform] hit tests its child wherever the
+  /// child is painted, even outside of the [RenderTransform]'s own bounds.
+  ///
+  /// This is used by the pass that, on the web, finds where Flutter content
+  /// painted on top of a platform view (see [PlatformViewRenderBox]) accepts
+  /// pointer events (see [visitHitTestRegions]). When this is false, the
+  /// regions reported by this box's descendants are clipped to this box's
+  /// bounds.
+  ///
+  /// Defaults to false. Subclasses that override [hitTest] to skip the size
+  /// check should override this to return true. The value must agree with
+  /// [hitTest]: if it is false while [hitTest] hits children outside of this
+  /// box's bounds, pointer events there go to the platform view instead of
+  /// Flutter.
+  @protected
+  bool get hitTestsChildrenOutsideBounds => false;
+
+  /// Reports this box's bounds if [hitTestSelf] returns true at the center of
+  /// its bounds, and nothing otherwise.
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    if (!hasSize || size.isEmpty) {
+      return;
+    }
+    if (hitTestSelf(size.center(Offset.zero))) {
+      visitor(Offset.zero & size);
+    }
+  }
 
   /// Multiply the transform from the parent's coordinate system to this box's
   /// coordinate system into the given transform.
