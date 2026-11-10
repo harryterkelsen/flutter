@@ -258,6 +258,9 @@ class RenderSliverIgnorePointer extends RenderProxySliver {
   }
 
   @override
+  bool get hitTestsChildren => !ignoring;
+
+  @override
   void describeSemanticsConfiguration(SemanticsConfiguration config) {
     super.describeSemanticsConfiguration(config);
     config.isBlockingUserActions = ignoring;
@@ -352,6 +355,15 @@ class RenderSliverOffstage extends RenderProxySliver {
       return;
     }
     super.visitChildrenForSemantics(visitor);
+  }
+
+  // The sliver child is not painted while offstage (see [paint]).
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    if (offstage) {
+      return;
+    }
+    super.visitChildrenInPaintOrder(visitor);
   }
 
   @override
