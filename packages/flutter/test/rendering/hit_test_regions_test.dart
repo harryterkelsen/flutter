@@ -2048,6 +2048,8 @@ void main() {
         );
 
         layout(stack1, phase: EnginePhase.composite);
+        nestedTarget1.visitCount = 0;
+        nestedTarget2.visitCount = 0;
         final Float64List? regions1 = computeHitTestRegions(stack1);
         expect(regions1, equals(Float64List.fromList(<double>[1.0, 0.0])));
         expect(nestedTarget1.visitCount, 0);
@@ -2085,6 +2087,8 @@ void main() {
         );
 
         layout(stack2, phase: EnginePhase.composite);
+        beforePv2InClip.visitCount = 0;
+        afterPv2InClip.visitCount = 0;
         final Float64List? regions2 = computeHitTestRegions(stack2);
         expect(
           regions2,
@@ -2123,6 +2127,7 @@ void main() {
       );
 
       layout(singlePvFullCoverStack, phase: EnginePhase.composite);
+      coveredAfterFullCover.visitCount = 0;
       final Float64List? earlyStoppedSingle = computeHitTestRegions(singlePvFullCoverStack);
       expect(coveredAfterFullCover.visitCount, 0);
       expect(
@@ -2160,6 +2165,8 @@ void main() {
       );
 
       layout(twoPvFullCoverStack, phase: EnginePhase.composite);
+      skippedInGroup1.visitCount = 0;
+      visitedInGroup2.visitCount = 0;
       final Float64List? earlyStoppedTwoPv = computeHitTestRegions(twoPvFullCoverStack);
       expect(skippedInGroup1.visitCount, 0);
       expect(visitedInGroup2.visitCount, 1);
@@ -2275,6 +2282,8 @@ void main() {
         );
 
         layout(stack, phase: EnginePhase.composite);
+        targetOverPv2AfterPv1Cover.visitCount = 0;
+        targetAfterBothCovered.visitCount = 0;
         final Float64List? withEarlyStop = computeHitTestRegions(stack);
         expect(targetOverPv2AfterPv1Cover.visitCount, 1);
         expect(targetAfterBothCovered.visitCount, 0);
@@ -2370,6 +2379,8 @@ void main() {
         );
 
         layout(stack, phase: EnginePhase.composite);
+        insideEarlyStoppedAbsorber.visitCount = 0;
+        insideClipMissedAbsorber.visitCount = 0;
         final Float64List? withEarlyStop = computeHitTestRegions(stack);
         expect(insideEarlyStoppedAbsorber.visitCount, 0);
         expect(insideClipMissedAbsorber.visitCount, 0);
