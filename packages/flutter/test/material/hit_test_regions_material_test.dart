@@ -616,7 +616,7 @@ void main() {
                 expect(filterChipSelectedCount, 1);
                 expect(filterChipDeletedCount, 0);
 
-                final Offset deleteIconCenter = tester.getCenter(find.byIcon(Icons.cancel));
+                final Offset deleteIconCenter = tester.getCenter(find.byIcon(Icons.clear));
                 await tester.tapAt(deleteIconCenter);
                 await tester.pumpAndSettle();
                 await tapInPadding(Offset(deleteIconCenter.dx, controlRect.bottom - 2), visualRect);
