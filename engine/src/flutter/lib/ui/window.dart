@@ -406,6 +406,25 @@ class FlutterView {
   )
   external static void _updateSemantics(int viewId, _NativeSemanticsUpdate update);
 
+  /// Reports the regions of this view that the framework hit tests above
+  /// platform views.
+  ///
+  /// The [regions] are encoded as a flat, paint-ordered list of groups,
+  /// `[platformViewId, n, (left, top, right, bottom) × n, …]`, in physical
+  /// pixels. Each group holds the rects that are painted after the platform
+  /// view with id `platformViewId` and before the next platform view. An empty
+  /// list means that no region covers any platform view.
+  ///
+  /// The framework typically calls this method right after [render], so the
+  /// regions describe the scene that was just rendered. It may also call it
+  /// outside of a frame with an empty list to clear all regions, for example
+  /// when the feature is turned off.
+  ///
+  /// On the web, the engine uses the regions to stop pointer events that land
+  /// on Flutter content painted over a platform view from reaching the
+  /// platform view. On all other platforms, this method does nothing.
+  void updateHitTestRegions(Float64List regions) {}
+
   @override
   String toString() => 'FlutterView(id: $viewId)';
 }
