@@ -747,4 +747,19 @@ class _RenderInputPadding extends RenderShiftedBox {
       },
     );
   }
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // [hitTest] redirects positions where `super.hitTest` fails to `child`'s
+    // center without checking `size.contains`, so in layouts where an ancestor
+    // hit tests children outside its bounds it can accept positions outside
+    // `size`; `visitHitTestRegions` intentionally claims only `Offset.zero & size`.
+    final RenderBox? child = this.child;
+    if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
+      return;
+    }
+    if (child.hitTest(BoxHitTestResult(), position: child.size.center(Offset.zero))) {
+      visitor(Offset.zero & size);
+    }
+  }
 }
