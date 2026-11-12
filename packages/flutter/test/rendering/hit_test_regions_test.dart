@@ -41,12 +41,19 @@ RenderBox _hitTarget({HitTestBehavior behavior = HitTestBehavior.opaque}) {
 
 /// Paints the children of a [RenderFlow] at [offsets], in [paintOrder].
 ///
-/// Children whose index is not in [paintOrder] are not painted at all.
+/// Children whose index is not in [paintOrder] are not painted at all, and
+/// children whose index is in [transparent] are painted with an opacity of
+/// zero.
 class _PaintOrderFlowDelegate extends FlowDelegate {
-  const _PaintOrderFlowDelegate({required this.paintOrder, required this.offsets});
+  const _PaintOrderFlowDelegate({
+    required this.paintOrder,
+    required this.offsets,
+    this.transparent = const <int>{},
+  });
 
   final List<int> paintOrder;
   final List<Offset> offsets;
+  final Set<int> transparent;
 
   @override
   BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) => constraints.loosen();
@@ -57,6 +64,7 @@ class _PaintOrderFlowDelegate extends FlowDelegate {
       context.paintChild(
         index,
         transform: Matrix4.translationValues(offsets[index].dx, offsets[index].dy, 0.0),
+        opacity: transparent.contains(index) ? 0.0 : 1.0,
       );
     }
   }
@@ -1171,6 +1179,19 @@ void main() {
         (2, <Rect>[const Rect.fromLTWH(50, 60, 40, 30)]),
       ]),
     );
+
+    // No index: nothing is displayed, so neither child contributes.
+    indexedStack.index = null;
+    expect(regionsAfterFrame(), _payload(<(int, List<Rect>)>[(1, const <Rect>[])]));
+
+    // Back to index 0: its hit target claims again.
+    indexedStack.index = 0;
+    expect(
+      regionsAfterFrame(),
+      _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(10, 20, 100, 50)]),
+      ]),
+    );
   });
 
   test('RenderFlow children are walked in the order the delegate paints them', () {
@@ -1211,6 +1232,35 @@ void main() {
       regionsAfterFrame(),
       _payload(<(int, List<Rect>)>[
         (1, <Rect>[const Rect.fromLTWH(10, 20, 100, 50)]),
+      ]),
+    );
+  });
+
+  test('RenderFlow children painted with an opacity of zero still claim where they are hit', () {
+    // RenderFlow hit tests children it paints fully transparent, so they must
+    // claim their (transformed) rects too.
+    final flow = RenderFlow(
+      delegate: const _PaintOrderFlowDelegate(
+        paintOrder: <int>[0, 1],
+        offsets: <Offset>[Offset.zero, Offset(30, 40)],
+        transparent: <int>{1},
+      ),
+      children: <RenderBox>[
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 400.0, height: 400.0),
+          child: _platformView(1),
+        ),
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 100.0, height: 50.0),
+          child: _hitTarget(),
+        ),
+      ],
+    );
+
+    expect(
+      regionsFor(_stack(<RenderBox>[_at(const Rect.fromLTWH(0, 0, 400, 400), flow)])),
+      _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(30, 40, 100, 50)]),
       ]),
     );
   });
