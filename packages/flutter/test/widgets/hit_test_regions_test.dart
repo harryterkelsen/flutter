@@ -102,7 +102,9 @@ Widget _buildApp(Widget home) => _app(home);
 void configureTestView(WidgetTester tester) {
   tester.view.physicalSize = const Size(800, 600);
   tester.view.devicePixelRatio = 1.0;
+  debugCheckHitTestRegions = true;
   addTearDown(() {
+    debugCheckHitTestRegions = false;
     debugEnableHitTestRegionsOnAllPlatforms = false;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
     tester.view.reset();
@@ -161,11 +163,13 @@ void main() {
   // are unset before tearDown callbacks run.
   void enablePass(WidgetTester tester) {
     debugEnableHitTestRegionsOnAllPlatforms = true;
+    debugCheckHitTestRegions = true;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
     tester.view.devicePixelRatio = _devicePixelRatio;
     tester.view.physicalSize = const Size(800, 600) * _devicePixelRatio;
     addTearDown(() {
       RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
+      debugCheckHitTestRegions = false;
       debugEnableHitTestRegionsOnAllPlatforms = false;
       tester.view.reset();
     });

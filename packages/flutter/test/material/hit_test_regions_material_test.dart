@@ -41,10 +41,12 @@ Widget _buildPlatformView(int viewId) {
 /// device pixel ratio of 1 so that physical and logical pixels coincide.
 void _enableHitTestRegions(WidgetTester tester) {
   debugEnableHitTestRegionsOnAllPlatforms = true;
+  debugCheckHitTestRegions = true;
   RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
   tester.view.physicalSize = const Size(1200, 800);
   tester.view.devicePixelRatio = 1;
   addTearDown(() {
+    debugCheckHitTestRegions = false;
     debugEnableHitTestRegionsOnAllPlatforms = false;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
     tester.view.reset();
@@ -386,6 +388,7 @@ final List<_MaterialScenario> _scenarios = <_MaterialScenario>[
 
 void main() {
   tearDown(() {
+    debugCheckHitTestRegions = false;
     debugEnableHitTestRegionsOnAllPlatforms = false;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
   });
@@ -484,4 +487,205 @@ void main() {
     expect(RendererBinding.instance.rootPipelineOwner.debugLastHitTestRegions, isNull);
     expect(tester.view.lastHitTestRegions, isNull);
   });
+
+  testWidgets(
+    'padded Material controls with visual height below 48 claim their full tap target and redirect padding taps',
+    (WidgetTester tester) async {
+      _enableHitTestRegions(tester);
+
+      var elevatedButtonTaps = 0;
+      var rawMaterialButtonTaps = 0;
+      final toggledIndices = <int>[];
+      var filterChipSelectedCount = 0;
+      var filterChipDeletedCount = 0;
+      var chipDeletedCount = 0;
+
+      Future<void> tapInPadding(Offset point, Rect visualRect) async {
+        expect(visualRect.contains(point), isFalse);
+        await tester.tapAt(point);
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> verifyTopAndBottomPaddingTaps(
+        Rect controlRect,
+        Rect visualRect,
+        int Function() readTapCount,
+      ) async {
+        await tapInPadding(Offset(controlRect.center.dx, controlRect.top + 2), visualRect);
+        await tapInPadding(Offset(controlRect.center.dx, controlRect.bottom - 2), visualRect);
+        expect(readTapCount(), 2);
+      }
+
+      final cases =
+          <
+            ({
+              String description,
+              Widget Function() buildControl,
+              Finder controlFinder,
+              Finder visualFinder,
+              Future<void> Function(Rect controlRect, Rect visualRect) verifyInteraction,
+            })
+          >[
+            (
+              description: 'ElevatedButton',
+              buildControl: () => ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  tapTargetSize: MaterialTapTargetSize.padded,
+                  visualDensity: VisualDensity.standard,
+                  minimumSize: const Size(64, 28),
+                  maximumSize: const Size(200, 28),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                ),
+                onPressed: () => elevatedButtonTaps += 1,
+                child: const Text('button'),
+              ),
+              controlFinder: find.byType(ElevatedButton),
+              visualFinder: find.descendant(
+                of: find.byType(ElevatedButton),
+                matching: find.byType(Material),
+              ),
+              verifyInteraction: (Rect controlRect, Rect visualRect) =>
+                  verifyTopAndBottomPaddingTaps(controlRect, visualRect, () => elevatedButtonTaps),
+            ),
+            (
+              description: 'RawMaterialButton',
+              buildControl: () => RawMaterialButton(
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                constraints: const BoxConstraints(minWidth: 64, minHeight: 28, maxHeight: 28),
+                fillColor: const Color(0xFF2196F3),
+                onPressed: () => rawMaterialButtonTaps += 1,
+                child: const Text('button'),
+              ),
+              controlFinder: find.byType(RawMaterialButton),
+              visualFinder: find.descendant(
+                of: find.byType(RawMaterialButton),
+                matching: find.byType(Material),
+              ),
+              verifyInteraction: (Rect controlRect, Rect visualRect) =>
+                  verifyTopAndBottomPaddingTaps(
+                    controlRect,
+                    visualRect,
+                    () => rawMaterialButtonTaps,
+                  ),
+            ),
+            (
+              description: 'ToggleButtons',
+              buildControl: () => ToggleButtons(
+                tapTargetSize: MaterialTapTargetSize.padded,
+                constraints: const BoxConstraints(minWidth: 48, minHeight: 28, maxHeight: 28),
+                isSelected: const <bool>[true, false],
+                onPressed: toggledIndices.add,
+                children: const <Widget>[Text('one'), Text('two')],
+              ),
+              controlFinder: find.byType(ToggleButtons),
+              visualFinder: find
+                  .descendant(of: find.byType(ToggleButtons), matching: find.byType(TextButton))
+                  .first,
+              verifyInteraction: (Rect controlRect, Rect visualRect) async {
+                final Finder buttons = find.descendant(
+                  of: find.byType(ToggleButtons),
+                  matching: find.byType(TextButton),
+                );
+                final Rect firstVisual = tester.getRect(buttons.at(0));
+                final Rect secondVisual = tester.getRect(buttons.at(1));
+                await tapInPadding(Offset(firstVisual.center.dx, controlRect.top + 2), firstVisual);
+                await tapInPadding(
+                  Offset(secondVisual.center.dx, controlRect.bottom - 2),
+                  secondVisual,
+                );
+                expect(toggledIndices, <int>[0, 1]);
+              },
+            ),
+            (
+              description: 'FilterChip',
+              buildControl: () => FilterChip(
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
+                padding: EdgeInsets.zero,
+                label: const Text('filter'),
+                onSelected: (_) => filterChipSelectedCount += 1,
+                onDeleted: () => filterChipDeletedCount += 1,
+              ),
+              controlFinder: find.byType(FilterChip),
+              visualFinder: find.descendant(
+                of: find.byType(FilterChip),
+                matching: find.byType(Material),
+              ),
+              verifyInteraction: (Rect controlRect, Rect visualRect) async {
+                await tapInPadding(Offset(controlRect.left + 12, controlRect.top + 2), visualRect);
+                expect(filterChipSelectedCount, 1);
+                expect(filterChipDeletedCount, 0);
+
+                final Offset deleteIconCenter = tester.getCenter(find.byIcon(Icons.cancel));
+                await tester.tapAt(deleteIconCenter);
+                await tester.pumpAndSettle();
+                await tapInPadding(Offset(deleteIconCenter.dx, controlRect.bottom - 2), visualRect);
+                expect(filterChipSelectedCount, 1);
+                expect(filterChipDeletedCount, 2);
+              },
+            ),
+            (
+              description: 'Chip with delete icon and non-tappable body',
+              buildControl: () => Chip(
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+                visualDensity: VisualDensity.standard,
+                padding: EdgeInsets.zero,
+                label: const Text('removable'),
+                onDeleted: () => chipDeletedCount += 1,
+              ),
+              controlFinder: find.byType(Chip),
+              visualFinder: find.descendant(of: find.byType(Chip), matching: find.byType(Material)),
+              verifyInteraction: (Rect controlRect, Rect visualRect) async {
+                await tapInPadding(Offset(controlRect.left + 12, controlRect.top + 2), visualRect);
+                expect(chipDeletedCount, 0);
+
+                final Offset deleteIconCenter = tester.getCenter(find.byIcon(Icons.cancel));
+                await tester.tapAt(deleteIconCenter);
+                await tester.pumpAndSettle();
+                await tapInPadding(Offset(deleteIconCenter.dx, controlRect.top + 2), visualRect);
+                expect(chipDeletedCount, 2);
+              },
+            ),
+          ];
+
+      for (final c in cases) {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(
+              materialTapTargetSize: MaterialTapTargetSize.padded,
+              visualDensity: VisualDensity.standard,
+            ),
+            home: Scaffold(
+              body: Stack(
+                children: <Widget>[
+                  // Tightly sized around the control so the cross-check's fixed
+                  // grid over the platform view samples the padded tap strips.
+                  Positioned(
+                    left: 80,
+                    top: 96,
+                    width: 300,
+                    height: 56,
+                    child: _buildPlatformView(1),
+                  ),
+                  Positioned(left: 100, top: 100, child: c.buildControl()),
+                ],
+              ),
+            ),
+          ),
+        );
+
+        final Rect controlRect = tester.getRect(c.controlFinder);
+        final Rect visualRect = tester.getRect(c.visualFinder);
+        expect(controlRect.height, kMinInteractiveDimension, reason: c.description);
+        expect(visualRect.height, lessThan(kMinInteractiveDimension), reason: c.description);
+
+        final List<_HitTestRegionGroup> groups = _lastGroups();
+        expect(groups, hasLength(1), reason: c.description);
+        expect(groups.single.viewId, 1, reason: c.description);
+        _expectRectsSpan(groups.single.rects, controlRect);
+
+        await c.verifyInteraction(controlRect, visualRect);
+      }
+    },
+  );
 }
