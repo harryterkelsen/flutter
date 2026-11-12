@@ -2385,9 +2385,11 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   /// because they are fully transparent, but that can still be hit, may be
   /// visited (as [RenderFlow] does).
   ///
-  /// This is used to find out which render objects paint on top of platform
-  /// views (see [PlatformViewRenderBox]), so that pointer events over them can
-  /// be routed to Flutter rather than to the platform view.
+  /// This method is currently only called by the experimental pass that
+  /// computes the hit-test regions of Flutter content painted on top of
+  /// platform views (see [PlatformViewRenderBox]) on the web, so that pointer
+  /// events over that content can be routed to Flutter rather than to the
+  /// platform view (see [RendererBinding.automaticPointerInterceptorsEnabled]).
   ///
   /// The default implementation calls [visitChildren], which is correct for
   /// render objects that paint all of their children in child order. Render
@@ -2400,6 +2402,7 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   ///  * [visitChildrenForSemantics], which similarly visits children in paint
   ///    order, but skips the children that are not semantically relevant
   ///    instead.
+  @internal
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     visitChildren(visitor);
   }
