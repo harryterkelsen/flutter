@@ -358,6 +358,7 @@ class RenderSliverOffstage extends RenderProxySliver {
   }
 
   // The sliver child is not painted while offstage (see [paint]).
+  @internal
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     if (offstage) {
