@@ -8,7 +8,6 @@
 /// @docImport 'package:flutter/widgets.dart';
 ///
 /// @docImport 'binding.dart';
-/// @docImport 'hit_test_regions.dart';
 /// @docImport 'layer.dart';
 /// @docImport 'proxy_box.dart';
 /// @docImport 'shifted_box.dart';
@@ -278,17 +277,28 @@ bool debugDisableOpacityLayers = false;
 /// non-web platforms.
 bool debugEnableHitTestRegionsOnAllPlatforms = false;
 
-/// Whether [computeHitTestRegions] cross-checks computed hit-test regions
+/// Whether the hit-test region pass cross-checks computed hit-test regions
 /// against [RenderBox.hitTest] in debug mode.
 ///
-/// When true, [computeHitTestRegions] runs hit tests in debug builds to verify
-/// that claimed regions over platform views agree with where [RenderBox.hitTest]
-/// accepts pointer events, reporting a [FlutterError] if a render object
-/// under-claims or over-claims a region over a platform view.
+/// When true, computing hit-test regions (such as during
+/// [PipelineOwner.flushHitTestRegions]) runs hit tests in debug builds to
+/// verify that claimed regions over platform views agree with where
+/// [RenderBox.hitTest] accepts pointer events, reporting a [FlutterError] if a
+/// render object under-claims or over-claims a region over a platform view.
 ///
 /// By default this is turned off because running additional hit tests on every
 /// frame is expensive. Turn this on in tests to validate custom
 /// [RenderObject.visitHitTestRegions] implementations.
+///
+/// See also:
+///
+///  * [RenderObject.visitHitTestRegions], which reports the hit-test regions
+///    for a render object.
+///  * [PipelineOwner.flushHitTestRegions], which computes and dispatches
+///    hit-test regions after each frame when
+///    [RendererBinding.automaticPointerInterceptorsEnabled] is true.
+///  * [debugEnableHitTestRegionsOnAllPlatforms], which enables hit-test region
+///    computation on non-web platforms in tests.
 bool debugCheckHitTestRegions = false;
 
 void _debugDrawDoubleRect(Canvas canvas, Rect outerRect, Rect innerRect, Color color) {
