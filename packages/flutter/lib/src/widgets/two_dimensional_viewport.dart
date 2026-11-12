@@ -9,6 +9,7 @@
 library;
 
 import 'package:flutter/animation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
 import 'framework.dart';
@@ -953,6 +954,21 @@ abstract class RenderTwoDimensionalViewport extends RenderBox implements RenderA
       child = childParentData._nextSibling;
     }
     // Do not visit children in [_keepAliveBucket].
+  }
+
+  // Mirrors [paint]: children in [_keepAliveBucket] are never painted, and
+  // only visible children are painted, in child order.
+  @internal
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    RenderBox? child = _firstChild;
+    while (child != null) {
+      final TwoDimensionalViewportParentData childParentData = parentDataOf(child);
+      if (childParentData.isVisible) {
+        visitor(child);
+      }
+      child = childParentData._nextSibling;
+    }
   }
 
   @override
