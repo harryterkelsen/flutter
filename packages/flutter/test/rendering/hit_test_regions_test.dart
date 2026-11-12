@@ -2832,12 +2832,21 @@ void main() {
     test('debugAssertAllRenderVarsUnset throws when debugCheckHitTestRegions is left enabled', () {
       debugEnableHitTestRegionsOnAllPlatforms = false;
       expect(
-        () => debugAssertAllRenderVarsUnset('debugCheckHitTestRegions set'),
+        () => debugAssertAllRenderVarsUnset(
+          'debugCheckHitTestRegions set',
+          debugCheckIntrinsicSizesOverride: debugCheckIntrinsicSizes,
+        ),
         throwsFlutterError,
       );
 
       debugCheckHitTestRegions = false;
-      expect(debugAssertAllRenderVarsUnset('all render vars unset'), isTrue);
+      expect(
+        debugAssertAllRenderVarsUnset(
+          'all render vars unset',
+          debugCheckIntrinsicSizesOverride: debugCheckIntrinsicSizes,
+        ),
+        isTrue,
+      );
     });
 
     test('reports an under-claim once per frame naming the topmost hit entry, and reports nothing when disabled', () {
