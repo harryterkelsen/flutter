@@ -82,6 +82,40 @@ class TestViewRasterizer extends ViewRasterizer {
   }
 }
 
+/// A [ViewRasterizer] that uses the real [ViewRasterizer.draw] and records the
+/// frame sizes it is asked to prepare surfaces for.
+class SizeRecordingViewRasterizer extends ViewRasterizer {
+  SizeRecordingViewRasterizer(super.view);
+
+  final List<BitmapSize> preparedSizes = <BitmapSize>[];
+  int rasterizeCount = 0;
+
+  @override
+  final DisplayCanvasFactory<RenderCanvas> displayFactory = DisplayCanvasFactory<RenderCanvas>(
+    createCanvas: () => RenderCanvas(),
+  );
+
+  @override
+  Future<void> prepareToDraw() {
+    // Stands in for the surface `setSize(currentFrameSize)` call made by the
+    // production view rasterizers.
+    preparedSizes.add(currentFrameSize);
+    return Future<void>.value();
+  }
+
+  @override
+  Future<void> rasterize(
+    List<DisplayCanvas> displayCanvases,
+    List<ui.Picture> pictures,
+    FrameTimingRecorder? recorder,
+  ) {
+    rasterizeCount++;
+    recorder?.recordRasterStart();
+    recorder?.recordRasterFinish();
+    return Future<void>.value();
+  }
+}
+
 void testMain() {
   group('Rasterizer', () {
     setUpUnitTests();
@@ -195,6 +229,67 @@ void testMain() {
       expect(treesRenderedInView3.length, 2);
       expect(treesRenderedInView3.first, treesToRenderInView3.first);
       expect(treesRenderedInView3.last, treesToRenderInView3.last);
+    });
+
+    test('skips frames whose physical size rounds to an empty bitmap', () async {
+      final testView = EngineFlutterView(
+        EnginePlatformDispatcher.instance,
+        createDomElement('test-view'),
+      );
+      EnginePlatformDispatcher.instance.viewManager.registerView(testView);
+
+      final viewRasterizer = SizeRecordingViewRasterizer(testView);
+      addTearDown(viewRasterizer.dispose);
+
+      // Frames are skipped only when the rounded size is empty, and a skipped
+      // frame keeps the size of the last drawn frame.
+      final expectedPreparedSizes = <BitmapSize>[];
+      for (final (ui.Size physicalSize, BitmapSize? expectedFrameSize) in <(ui.Size, BitmapSize?)>[
+        (const ui.Size(0.4, 100), null),
+        (const ui.Size(100, 0.4), null),
+        (const ui.Size(0.6, 100.4), const BitmapSize(1, 100)),
+        (const ui.Size(0.4, 0.4), null),
+        (const ui.Size(100, 50), const BitmapSize(100, 50)),
+        (const ui.Size(0.4, 50), null),
+      ]) {
+        testView.debugPhysicalSizeOverride = physicalSize;
+        testView.debugForceResize();
+        expect(testView.physicalSize.isEmpty, isFalse);
+
+        final frameRecorder = ui.PictureRecorder();
+        ui.Canvas(frameRecorder).drawRect(
+          const ui.Rect.fromLTWH(0, 0, 50, 50),
+          ui.Paint()..color = const ui.Color(0xff00ff00),
+        );
+        final frameBuilder = ui.SceneBuilder();
+        frameBuilder.addPicture(ui.Offset.zero, frameRecorder.endRecording());
+        final frameScene = frameBuilder.build() as LayerScene;
+
+        final frameTimingRecorder = FrameTimingRecorder();
+        await viewRasterizer.draw(frameScene.layerTree, physicalSize, frameTimingRecorder);
+
+        final String outcome;
+        if (expectedFrameSize != null) {
+          expectedPreparedSizes.add(expectedFrameSize);
+          outcome = '$physicalSize rounds to $expectedFrameSize, so the frame is drawn';
+        } else {
+          outcome = '$physicalSize rounds to an empty bitmap, so the frame is skipped';
+          // `submitTimings` only succeeds once the build and raster timings
+          // have each been recorded.
+          expect(
+            frameTimingRecorder.submitTimings,
+            returnsNormally,
+            reason: 'a skipped frame still records its build and raster timings',
+          );
+        }
+        expect(viewRasterizer.preparedSizes, expectedPreparedSizes, reason: outcome);
+        expect(viewRasterizer.rasterizeCount, expectedPreparedSizes.length, reason: outcome);
+        expect(
+          viewRasterizer.currentFrameSize,
+          expectedPreparedSizes.isEmpty ? BitmapSize.zero : expectedPreparedSizes.last,
+          reason: outcome,
+        );
+      }
     });
   });
 }
