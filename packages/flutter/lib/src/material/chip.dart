@@ -1588,6 +1588,34 @@ class _RenderChipRedirectingHitDetection extends RenderConstrainedBox {
       },
     );
   }
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    final RenderBox? child = this.child;
+    if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
+      return;
+    }
+    var left = 0.0;
+    double right = size.width;
+    if (child is RenderPositionedBox) {
+      final RenderBox? inner = child.child;
+      if (inner == null || !inner.hasSize || inner.size.isEmpty) {
+        return;
+      }
+      final innerParentData = inner.parentData! as BoxParentData;
+      left = math.max(0.0, innerParentData.offset.dx);
+      right = math.min(size.width, innerParentData.offset.dx + inner.size.width);
+    }
+    if (left >= right) {
+      return;
+    }
+    if (child.hitTest(
+      BoxHitTestResult(),
+      position: Offset((left + right) / 2.0, size.height / 2.0),
+    )) {
+      visitor(Rect.fromLTRB(left, 0.0, right, size.height));
+    }
+  }
 }
 
 class _ChipRenderWidget extends SlottedMultiChildRenderObjectWidget<_ChipSlot, RenderBox> {
@@ -2336,6 +2364,73 @@ class _RenderChip extends RenderBox with SlottedContainerRenderObjectMixin<_Chip
   @override
   bool hitTestSelf(Offset position) =>
       _deleteButtonRect.contains(position) || _pressRect.contains(position);
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    final RenderBox? labelBox = childForSlot(_ChipSlot.label);
+    final RenderBox? deleteIconBox = childForSlot(_ChipSlot.deleteIcon);
+    if (!hasSize ||
+        size.isEmpty ||
+        labelBox == null ||
+        !labelBox.hasSize ||
+        deleteIconBox == null ||
+        !deleteIconBox.hasSize) {
+      return;
+    }
+    final bool labelHits = labelBox.hitTest(
+      BoxHitTestResult(),
+      position: labelBox.size.center(Offset.zero),
+    );
+    final bool deleteHits = deleteIconBox.hitTest(
+      BoxHitTestResult(),
+      position: deleteIconBox.size.center(Offset.zero),
+    );
+    if (!labelHits && !deleteHits) {
+      return;
+    }
+    if (labelHits && deleteHits) {
+      visitor(Offset.zero & size);
+      return;
+    }
+    final EdgeInsets resolvedPadding = theme.padding.resolve(textDirection);
+    final Size deflatedSize = resolvedPadding.deflateSize(size);
+    final double accessibleDeleteButtonWidth = math.min(
+      deflatedSize.width * 0.499,
+      math.min(
+        theme.labelPadding.resolve(textDirection).right + deleteIconBox.size.width,
+        24.0 + deleteIconBox.size.width / 2.0,
+      ),
+    );
+    final (Rect labelRect, Rect deleteRect) = switch (textDirection) {
+      TextDirection.ltr => () {
+        final double splitX = clampDouble(
+          resolvedPadding.left + deflatedSize.width - accessibleDeleteButtonWidth,
+          0.0,
+          size.width,
+        );
+        return (
+          Rect.fromLTRB(0.0, 0.0, splitX, size.height),
+          Rect.fromLTRB(splitX, 0.0, size.width, size.height),
+        );
+      }(),
+      TextDirection.rtl => () {
+        final double splitX = clampDouble(
+          resolvedPadding.left + accessibleDeleteButtonWidth,
+          0.0,
+          size.width,
+        );
+        return (
+          Rect.fromLTRB(splitX, 0.0, size.width, size.height),
+          Rect.fromLTRB(0.0, 0.0, splitX, size.height),
+        );
+      }(),
+    };
+    if (labelHits && !labelRect.isEmpty) {
+      visitor(labelRect);
+    } else if (deleteHits && !deleteRect.isEmpty) {
+      visitor(deleteRect);
+    }
+  }
 }
 
 class _ChipSizes {
