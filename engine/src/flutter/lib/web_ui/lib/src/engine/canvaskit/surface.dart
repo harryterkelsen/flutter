@@ -469,7 +469,10 @@ abstract class CkSurface extends Surface {
     final paint = ui.Paint();
 
     canvas.drawImage(engineImage, ui.Offset.zero, paint);
-    final SkImage snapshot = skSurface.makeImageSnapshot();
+    final SkImage? snapshot = skSurface.makeImageSnapshot();
+    if (snapshot == null) {
+      return null;
+    }
 
     try {
       if (format == ui.ImageByteFormat.rawRgba || format == ui.ImageByteFormat.rawStraightRgba) {

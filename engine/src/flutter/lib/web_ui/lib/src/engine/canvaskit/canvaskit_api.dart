@@ -230,7 +230,9 @@ extension type SkSurface(JSObject _) implements JSObject {
   external double width();
   external double height();
   external void dispose();
-  external SkImage makeImageSnapshot();
+
+  /// Returns `null` if Skia fails to create the snapshot.
+  external SkImage? makeImageSnapshot();
 }
 
 extension type SkGrContext(JSObject _) implements JSObject {
