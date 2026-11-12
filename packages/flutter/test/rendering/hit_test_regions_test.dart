@@ -278,6 +278,15 @@ class _OverclaimingHitBox extends RenderBox {
   }
 }
 
+/// An absorbing [RenderAbsorbPointer] (whose [hitTest] returns true without
+/// adding itself to `result.path`) that fails to report its hit-test region.
+class _UnclaimedAbsorbPointer extends RenderAbsorbPointer {
+  _UnclaimedAbsorbPointer({super.child});
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {}
+}
+
 RenderBox _positioned({
   double? left,
   double? top,
@@ -3010,6 +3019,51 @@ void main() {
       expect(checkedPayload, equals(uncheckedPayload));
       expect(errors, hasLength(1));
       expect(errors.single.toString(), contains(describeIdentity(unclaimed)));
+    });
+
+    test('reports nothing for opaque ancestors and earlier absorbers under transparent or ignored platform views, while catching unclaimed absorbers painted above them', () {
+      PlatformViewRenderBox transparentPlatformView(int viewId) {
+        return PlatformViewRenderBox(
+          controller: FakePlatformViewController(viewId),
+          hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+          gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+        );
+      }
+
+      // 1. Opaque ancestor wrapping a transparent platform view (with an
+      // absorbing RenderAbsorbPointer painted *below* it) and an ignored
+      // platform view: neither the opaque ancestor nor the absorber below the
+      // platform view sits above a platform view, so zero errors are reported.
+      final RenderBox validRoot = RenderPointerListener(
+        behavior: HitTestBehavior.opaque,
+        child: _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 100, 100), RenderAbsorbPointer(child: _hitTarget())),
+          _at(const Rect.fromLTWH(0, 0, 200, 200), transparentPlatformView(1)),
+          _at(const Rect.fromLTWH(220, 0, 200, 200), RenderIgnorePointer(child: _platformView(2))),
+        ]),
+      );
+      Float64List? validPayload;
+      final List<FlutterErrorDetails> validErrors = captureFrameErrors(() {
+        validPayload = regionsFor(validRoot);
+      });
+      expect(validErrors, isEmpty);
+      expect(validPayload, _payload(<(int, List<Rect>)>[(1, <Rect>[]), (2, <Rect>[])]));
+
+      // 2. An unclaimed absorbing box painted *above* a transparent platform
+      // view inside an opaque ancestor still reports an under-claim.
+      final RenderStack innerStack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 200, 200), transparentPlatformView(3)),
+        _at(const Rect.fromLTWH(20, 20, 80, 80), _UnclaimedAbsorbPointer(child: _hitTarget())),
+      ]);
+      final RenderBox underclaimedRoot = RenderPointerListener(
+        behavior: HitTestBehavior.opaque,
+        child: innerStack,
+      );
+      final List<FlutterErrorDetails> underclaimErrors = captureFrameErrors(() {
+        regionsFor(underclaimedRoot);
+      });
+      expect(underclaimErrors, hasLength(1));
+      expect(underclaimErrors.single.toString(), contains(describeIdentity(innerStack)));
     });
   });
 }

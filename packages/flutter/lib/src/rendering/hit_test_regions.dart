@@ -629,7 +629,10 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   }
 
   assert(() {
-    if (debugCheckHitTestRegions) {
+    if (debugCheckHitTestRegions &&
+        debugPlatformViews != null &&
+        debugClaimers != null &&
+        debugVisitOrder != null) {
       _debugVerifyHitTestRegions(
         root: root,
         groups: groups,
@@ -670,7 +673,29 @@ void _debugVerifyHitTestRegions({
   required List<List<RenderObject>> claimers,
   required Map<RenderObject, int> visitOrder,
 }) {
-  if (root is! RenderView && root is! RenderBox) {
+  final RenderBox rootBox;
+  Matrix4? rootToChild;
+  if (root is RenderView) {
+    if (!root.hasConfiguration) {
+      return;
+    }
+    final RenderBox? child = root.child;
+    if (child == null || !child.hasSize) {
+      return;
+    }
+    final transform = Matrix4.identity();
+    root.applyPaintTransform(child, transform);
+    if (transform.invert() == 0.0) {
+      return;
+    }
+    rootBox = child;
+    rootToChild = transform;
+  } else if (root is RenderBox) {
+    if (!root.hasSize) {
+      return;
+    }
+    rootBox = root;
+  } else {
     return;
   }
 
@@ -679,13 +704,13 @@ void _debugVerifyHitTestRegions({
       <RenderObject>{for (RenderObject? p = pv.box.parent; p != null; p = p.parent) p},
   ];
 
+  Offset toRootBoxLocal(Offset point) {
+    return rootToChild == null ? point : MatrixUtils.transformPoint(rootToChild, point);
+  }
+
   (bool hit, BoxHitTestResult result) hitTestAt(Offset point) {
     final result = BoxHitTestResult();
-    if (root is RenderView) {
-      final Offset logicalPoint = point / root.configuration.devicePixelRatio;
-      return (root.child?.hitTest(result, position: logicalPoint) ?? false, result);
-    }
-    return ((root as RenderBox).hitTest(result, position: point), result);
+    return (rootBox.hitTest(result, position: toRootBoxLocal(point)), result);
   }
 
   bool isDescendantOf(RenderObject node, RenderObject ancestor) {
@@ -754,22 +779,47 @@ void _debugVerifyHitTestRegions({
         pvInfo.box.hitTestSelf(Offset.zero)) {
       return true;
     }
-    if (hitObject == null) {
+
+    final RenderObject lca = hitObject ?? rootBox;
+    if (lca is! RenderBox || !lca.hasSize) {
       return false;
     }
-    for (
-      RenderObject? anc = pvInfo.box.parent;
-      anc != null && !identical(anc, hitObject);
-      anc = anc.parent
-    ) {
-      // ignore: invalid_use_of_protected_member
-      if (anc is RenderBox && anc.hasSize && !anc.hitTestsChildren) {
-        if (anc.hitTest(BoxHitTestResult(), position: anc.size.center(Offset.zero))) {
-          return false;
+    Offset? lcaLocalPosition;
+    if (hitObject != null) {
+      for (final HitTestEntry entry in result.path) {
+        if (identical(entry.target, lca) && entry is BoxHitTestEntry) {
+          lcaLocalPosition = entry.localPosition;
+          break;
+        }
+      }
+    } else if (identical(lca, rootBox)) {
+      lcaLocalPosition = toRootBoxLocal(sample);
+    }
+    final int? pvOrder = visitOrder[pvInfo.box];
+    if (lcaLocalPosition == null || pvOrder == null) {
+      return false;
+    }
+    final Offset position = lcaLocalPosition;
+    final childTransform = Matrix4.identity();
+    for (final MapEntry<RenderObject, int> visited in visitOrder.entries) {
+      final RenderObject child = visited.key;
+      if (visited.value > pvOrder &&
+          identical(child.parent, lca) &&
+          child is RenderBox &&
+          child.hasSize) {
+        childTransform.setIdentity();
+        lca.applyPaintTransform(child, childTransform);
+        final bool childAccepted = BoxHitTestResult().addWithPaintTransform(
+          transform: childTransform,
+          position: position,
+          hitTest: (BoxHitTestResult r, Offset pos) => child.hitTest(r, position: pos),
+        );
+        if (childAccepted) {
+          return true;
         }
       }
     }
-    return true;
+    return false;
   }
 
   bool isCoveredByLaterPlatformView(Offset point, int afterGroup) {
