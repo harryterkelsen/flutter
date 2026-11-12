@@ -1595,6 +1595,11 @@ class _RenderChipRedirectingHitDetection extends RenderConstrainedBox {
     if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
       return;
     }
+    // RawChip wraps its Material in a Center inside _ChipRedirectingHitDetectionWidget,
+    // while hitTest only redirects position.dy to size.height / 2 and preserves
+    // position.dx. When a narrow chip is horizontally centered inside the
+    // minimum tap target width, hits in the outer horizontal margins miss the
+    // inner Material, so restrict the claimed horizontal span accordingly.
     var left = 0.0;
     double right = size.width;
     if (child is RenderPositionedBox) {
@@ -2367,6 +2372,10 @@ class _RenderChip extends RenderBox with SlottedContainerRenderObjectMixin<_Chip
 
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // _RenderChip.hitTest bypasses hitTestSelf and instead dispatches taps
+    // within size to either deleteIcon or label (at their centers) based on
+    // _hitIsOnDeleteIcon. Mirror that split here so reported regions match
+    // hitTest even when _RenderChip is used without an opaque Material wrapper.
     final RenderBox? labelBox = childForSlot(_ChipSlot.label);
     final RenderBox? deleteIconBox = childForSlot(_ChipSlot.deleteIcon);
     if (!hasSize ||
@@ -2394,41 +2403,26 @@ class _RenderChip extends RenderBox with SlottedContainerRenderObjectMixin<_Chip
     }
     final EdgeInsets resolvedPadding = theme.padding.resolve(textDirection);
     final Size deflatedSize = resolvedPadding.deflateSize(size);
-    final double accessibleDeleteButtonWidth = math.min(
-      deflatedSize.width * 0.499,
-      math.min(
-        theme.labelPadding.resolve(textDirection).right + deleteIconBox.size.width,
-        24.0 + deleteIconBox.size.width / 2.0,
-      ),
+    final double deleteButtonWidth = _accessibleDeleteButtonWidth(
+      deflatedSize: deflatedSize,
+      labelPadding: theme.labelPadding,
+      deleteButtonSize: deleteIconBox.size,
+      textDirection: textDirection,
     );
-    final (Rect labelRect, Rect deleteRect) = switch (textDirection) {
-      TextDirection.ltr => () {
-        final double splitX = clampDouble(
-          resolvedPadding.left + deflatedSize.width - accessibleDeleteButtonWidth,
-          0.0,
-          size.width,
-        );
-        return (
-          Rect.fromLTRB(0.0, 0.0, splitX, size.height),
-          Rect.fromLTRB(splitX, 0.0, size.width, size.height),
-        );
-      }(),
-      TextDirection.rtl => () {
-        final double splitX = clampDouble(
-          resolvedPadding.left + accessibleDeleteButtonWidth,
-          0.0,
-          size.width,
-        );
-        return (
-          Rect.fromLTRB(splitX, 0.0, size.width, size.height),
-          Rect.fromLTRB(0.0, 0.0, splitX, size.height),
-        );
-      }(),
-    };
-    if (labelHits && !labelRect.isEmpty) {
-      visitor(labelRect);
-    } else if (deleteHits && !deleteRect.isEmpty) {
-      visitor(deleteRect);
+    final double splitX = clampDouble(
+      switch (textDirection) {
+        TextDirection.ltr => resolvedPadding.left + deflatedSize.width - deleteButtonWidth,
+        TextDirection.rtl => resolvedPadding.left + deleteButtonWidth,
+      },
+      0.0,
+      size.width,
+    );
+    final claimLeftHalf = labelHits == (textDirection == TextDirection.ltr);
+    final claimedRect = claimLeftHalf
+        ? Rect.fromLTRB(0.0, 0.0, splitX, size.height)
+        : Rect.fromLTRB(splitX, 0.0, size.width, size.height);
+    if (!claimedRect.isEmpty) {
+      visitor(claimedRect);
     }
   }
 }
@@ -2488,6 +2482,34 @@ class _UnconstrainedInkSplashFactory extends InteractiveInkFeatureFactory {
   }
 }
 
+double _accessibleDeleteButtonWidth({
+  required Size deflatedSize,
+  required EdgeInsetsGeometry labelPadding,
+  required Size deleteButtonSize,
+  required TextDirection textDirection,
+}) {
+  // The delete button hit area should be at least the width of the delete
+  // button and right label padding, but, if there's room, up to 24 pixels
+  // from the center of the delete icon (corresponding to part of a 48x48 square
+  // that Material would prefer for touch targets), but no more than approximately
+  // half of the overall size of the chip when the chip is small.
+  //
+  // This isn't affected by materialTapTargetSize because it only applies to the
+  // width of the tappable region within the chip, not outside of the chip,
+  // which is handled elsewhere. Also because delete buttons aren't specified to
+  // be used on touch devices, only desktop devices.
+  //
+  // Max out at not quite half, so that tests that tap on the center of a small
+  // chip will still hit the chip, not the delete button.
+  return math.min(
+    deflatedSize.width * 0.499,
+    math.min(
+      labelPadding.resolve(textDirection).right + deleteButtonSize.width,
+      24.0 + deleteButtonSize.width / 2.0,
+    ),
+  );
+}
+
 bool _hitIsOnDeleteIcon({
   required EdgeInsetsGeometry padding,
   required EdgeInsetsGeometry labelPadding,
@@ -2501,25 +2523,11 @@ bool _hitIsOnDeleteIcon({
   final EdgeInsets resolvedPadding = padding.resolve(textDirection);
   final Size deflatedSize = resolvedPadding.deflateSize(chipSize);
   final Offset adjustedPosition = tapPosition - Offset(resolvedPadding.left, resolvedPadding.top);
-  // The delete button hit area should be at least the width of the delete
-  // button and right label padding, but, if there's room, up to 24 pixels
-  // from the center of the delete icon (corresponding to part of a 48x48 square
-  // that Material would prefer for touch targets), but no more than approximately
-  // half of the overall size of the chip when the chip is small.
-  //
-  // This isn't affected by materialTapTargetSize because it only applies to the
-  // width of the tappable region within the chip, not outside of the chip,
-  // which is handled elsewhere. Also because delete buttons aren't specified to
-  // be used on touch devices, only desktop devices.
-
-  // Max out at not quite half, so that tests that tap on the center of a small
-  // chip will still hit the chip, not the delete button.
-  final double accessibleDeleteButtonWidth = math.min(
-    deflatedSize.width * 0.499,
-    math.min(
-      labelPadding.resolve(textDirection).right + deleteButtonSize.width,
-      24.0 + deleteButtonSize.width / 2.0,
-    ),
+  final double accessibleDeleteButtonWidth = _accessibleDeleteButtonWidth(
+    deflatedSize: deflatedSize,
+    labelPadding: labelPadding,
+    deleteButtonSize: deleteButtonSize,
+    textDirection: textDirection,
   );
   return switch (textDirection) {
     TextDirection.ltr => adjustedPosition.dx >= deflatedSize.width - accessibleDeleteButtonWidth,

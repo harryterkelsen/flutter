@@ -2979,12 +2979,12 @@ void main() {
         <String>[
           for (final FlutterErrorDetails e in errors) e.exceptionAsString().split('\n').first,
         ],
-        unorderedEquals(<String>[
-          'Hit-test region over-claim detected for ${describeIdentity(overclaimingAboveBoth)}.',
-          'Hit-test region over-claim detected for ${describeIdentity(shiftedBox)}.',
-          'Hit-test region over-claim detected for ${describeIdentity(overclaimingOverTransparentPv)}.',
-          'Hit-test region under-claim detected for ${describeIdentity(unclaimedAboveBoth)}.',
-          'Hit-test region under-claim detected for ${describeIdentity(shiftedBox)}.',
+        unorderedMatches(<Matcher>[
+          allOf(contains('over-claim'), contains(describeIdentity(overclaimingAboveBoth))),
+          allOf(contains('over-claim'), contains(describeIdentity(shiftedBox))),
+          allOf(contains('over-claim'), contains(describeIdentity(overclaimingOverTransparentPv))),
+          allOf(contains('under-claim'), contains(describeIdentity(unclaimedAboveBoth))),
+          allOf(contains('under-claim'), contains(describeIdentity(shiftedBox))),
         ]),
       );
     });
