@@ -78,9 +78,11 @@ class _PaintOrderFlowDelegate extends FlowDelegate {
 /// [regions] (in its local coordinates, which may extend beyond its own
 /// bounds), and reports exactly those regions as its hit-test regions.
 class _RegionHitTestBox extends RenderBox {
-  _RegionHitTestBox(this.regions);
+  _RegionHitTestBox(this.regions, {List<Rect>? claimedRegions})
+    : claimedRegions = claimedRegions ?? regions;
 
   final List<Rect> regions;
+  final List<Rect> claimedRegions;
 
   @override
   bool get sizedByParent => true;
@@ -103,7 +105,7 @@ class _RegionHitTestBox extends RenderBox {
 
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
-    regions.forEach(visitor);
+    claimedRegions.forEach(visitor);
   }
 }
 
@@ -2938,6 +2940,76 @@ void main() {
           (2, <Rect>[opaqueOverPv2]),
         ], scale: 2.0),
       );
+    });
+
+    test('reports simultaneous over-claims and under-claims once per distinct render object per frame, including across intermediate and transparent platform views', () {
+      final overclaimingAboveBoth = _OverclaimingHitBox();
+      final unclaimedAboveBoth = _UnclaimedOpaqueHitBox();
+      final shiftedBox = _RegionHitTestBox(
+        const <Rect>[Rect.fromLTWH(60, 0, 60, 60)],
+        claimedRegions: const <Rect>[Rect.fromLTWH(0, 0, 60, 60)],
+      );
+      final transparentPv = PlatformViewRenderBox(
+        controller: FakePlatformViewController(3),
+        hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+      );
+      final overclaimingOverTransparentPv = _OverclaimingHitBox();
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 300, 300), _platformView(1)),
+        _at(const Rect.fromLTWH(40, 40, 120, 120), _platformView(2)),
+        _at(const Rect.fromLTWH(50, 50, 80, 80), overclaimingAboveBoth),
+        _at(const Rect.fromLTWH(130, 130, 80, 80), unclaimedAboveBoth),
+        _at(const Rect.fromLTWH(20, 220, 120, 60), shiftedBox),
+        _at(const Rect.fromLTWH(320, 0, 80, 80), transparentPv),
+        _at(const Rect.fromLTWH(330, 10, 60, 60), overclaimingOverTransparentPv),
+      ]);
+
+      final List<FlutterErrorDetails> errors = captureFrameErrors(() => regionsFor(root));
+      expect(
+        <String>[
+          for (final FlutterErrorDetails e in errors) e.exceptionAsString().split('\n').first,
+        ],
+        unorderedEquals(<String>[
+          'Hit-test region over-claim detected for ${describeIdentity(overclaimingAboveBoth)}.',
+          'Hit-test region over-claim detected for ${describeIdentity(shiftedBox)}.',
+          'Hit-test region over-claim detected for ${describeIdentity(overclaimingOverTransparentPv)}.',
+          'Hit-test region under-claim detected for ${describeIdentity(unclaimedAboveBoth)}.',
+          'Hit-test region under-claim detected for ${describeIdentity(shiftedBox)}.',
+        ]),
+      );
+    });
+
+    test('does not false-positive when a group 1 barrier center is covered by a later platform view, and resumes reporting after toggling or reattaching', () {
+      const barrier = Rect.fromLTWH(0, 0, 300, 300);
+      final RenderBox pv1 = _at(barrier, _platformView(1));
+      final RenderBox barrierBox = _at(barrier, _hitTarget());
+      // Covers both (0.5, 0.5) = (150, 150) and (0.25, 0.25) = (75, 75) of barrier.
+      final RenderBox pv2 = _at(const Rect.fromLTWH(70, 70, 160, 160), _platformView(2));
+      final RenderStack root = _stack(<RenderBox>[pv1, barrierBox, pv2]);
+      expect(captureFrameErrors(() => regionsFor(root)), isEmpty);
+
+      final unclaimed = _UnclaimedOpaqueHitBox();
+      root
+        ..remove(pv1)
+        ..remove(barrierBox)
+        ..remove(pv2)
+        ..add(_at(const Rect.fromLTWH(10, 10, 80, 80), unclaimed));
+      expect(captureFrameErrors(regionsAfterFrame), isEmpty);
+
+      debugCheckHitTestRegions = false;
+      root.insert(_at(const Rect.fromLTWH(0, 0, 200, 200), _platformView(4)));
+      final Float64List? uncheckedPayload = regionsAfterFrame();
+      expect(uncheckedPayload, isNotNull);
+
+      debugCheckHitTestRegions = true;
+      Float64List? checkedPayload;
+      final List<FlutterErrorDetails> errors = captureFrameErrors(() {
+        checkedPayload = regionsAfterFrame();
+      });
+      expect(checkedPayload, equals(uncheckedPayload));
+      expect(errors, hasLength(1));
+      expect(errors.single.toString(), contains(describeIdentity(unclaimed)));
     });
   });
 }

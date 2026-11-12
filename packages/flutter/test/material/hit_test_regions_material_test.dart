@@ -688,4 +688,180 @@ void main() {
       }
     },
   );
+
+  testWidgets(
+    'RTL chips, narrow centered chips, vertical ToggleButtons, IgnorePointer, and shrinkWrap controls claim exact hit-testable bounds',
+    (WidgetTester tester) async {
+      _enableHitTestRegions(tester);
+      var rtlFilterSelected = 0, rtlFilterDeleted = 0, rtlChipDeleted = 0, narrowPressed = 0;
+      var shrinkTaps = 0;
+      final verticalToggled = <int>[];
+
+      Future<void> pump(
+        Widget child, {
+        MaterialTapTargetSize tapSize = MaterialTapTargetSize.padded,
+        TextDirection dir = TextDirection.ltr,
+      }) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: ThemeData(materialTapTargetSize: tapSize, visualDensity: VisualDensity.standard),
+            home: Directionality(
+              textDirection: dir,
+              child: Scaffold(
+                body: Stack(
+                  children: <Widget>[
+                    Positioned(
+                      left: 80,
+                      top: 90,
+                      width: 300,
+                      height: 130,
+                      child: _buildPlatformView(1),
+                    ),
+                    Positioned(left: 100, top: 100, child: child),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      for (final (Widget chip, Finder finder, IconData icon) in <(Widget, Finder, IconData)>[
+        (
+          FilterChip(
+            padding: EdgeInsets.zero,
+            label: const Text('filter'),
+            onSelected: (_) => rtlFilterSelected += 1,
+            onDeleted: () => rtlFilterDeleted += 1,
+          ),
+          find.byType(FilterChip),
+          Icons.clear,
+        ),
+        (
+          Chip(
+            padding: EdgeInsets.zero,
+            label: const Text('removable'),
+            onDeleted: () => rtlChipDeleted += 1,
+          ),
+          find.byType(Chip),
+          Icons.cancel,
+        ),
+      ]) {
+        await pump(chip, dir: TextDirection.rtl);
+        final Rect rect = tester.getRect(finder);
+        final Offset del = tester.getCenter(find.byIcon(icon));
+        expect(del.dx, lessThan(rect.center.dx));
+        _expectRectsSpan(_lastGroups().single.rects, rect);
+        await tester.tapAt(Offset(rect.right - 12, rect.top + 2));
+        await tester.pumpAndSettle();
+        expect(rtlChipDeleted, 0);
+        await tester.tapAt(Offset(del.dx, rect.bottom - 2));
+        await tester.pumpAndSettle();
+      }
+      expect((rtlFilterSelected, rtlFilterDeleted, rtlChipDeleted), (1, 1, 1));
+
+      await pump(
+        ActionChip(
+          padding: EdgeInsets.zero,
+          labelPadding: EdgeInsets.zero,
+          label: const SizedBox(width: 20, height: 16),
+          onPressed: () => narrowPressed += 1,
+        ),
+      );
+      final Rect narrow = tester.getRect(find.byType(ActionChip));
+      final Rect narrowMat = tester.getRect(
+        find.descendant(of: find.byType(ActionChip), matching: find.byType(Material)),
+      );
+      expect((narrow.width, narrowMat.width < kMinInteractiveDimension), (48.0, true));
+      _expectRectsSpan(
+        _lastGroups().single.rects,
+        Rect.fromLTRB(narrowMat.left, narrow.top, narrowMat.right, narrow.bottom),
+      );
+      await tester.tapAt(Offset(narrow.left + 2, narrow.center.dy));
+      await tester.pumpAndSettle();
+      expect(narrowPressed, 0);
+      await tester.tapAt(Offset(narrowMat.center.dx, narrow.top + 2));
+      await tester.pumpAndSettle();
+      expect(narrowPressed, 1);
+
+      await pump(
+        ToggleButtons(
+          direction: Axis.vertical,
+          constraints: const BoxConstraints.tightFor(width: 28, height: 48),
+          isSelected: const <bool>[true, false],
+          onPressed: verticalToggled.add,
+          children: const <Widget>[Text('1'), Text('2')],
+        ),
+      );
+      final Rect vert = tester.getRect(find.byType(ToggleButtons));
+      final Finder btns = find.descendant(
+        of: find.byType(ToggleButtons),
+        matching: find.byType(TextButton),
+      );
+      expect((vert.width, tester.getRect(btns.at(0)).width < 48.0), (48.0, true));
+      _expectRectsSpan(_lastGroups().single.rects, vert);
+      await tester.tapAt(Offset(vert.left + 2, tester.getCenter(btns.at(0)).dy));
+      await tester.pumpAndSettle();
+      await tester.tapAt(Offset(vert.right - 2, tester.getCenter(btns.at(1)).dy));
+      await tester.pumpAndSettle();
+      expect(verticalToggled, <int>[0, 1]);
+
+      List<(Widget, Finder)> controls(MaterialTapTargetSize size) => <(Widget, Finder)>[
+        (
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              tapTargetSize: size,
+              minimumSize: const Size(64, 28),
+              maximumSize: const Size(200, 28),
+            ),
+            onPressed: () => shrinkTaps++,
+            child: const Text('b'),
+          ),
+          find.byType(ElevatedButton),
+        ),
+        (
+          RawMaterialButton(
+            materialTapTargetSize: size,
+            constraints: const BoxConstraints.tightFor(width: 64, height: 28),
+            onPressed: () => shrinkTaps++,
+            child: const Text('b'),
+          ),
+          find.byType(RawMaterialButton),
+        ),
+        (
+          ToggleButtons(
+            tapTargetSize: size,
+            constraints: const BoxConstraints.tightFor(width: 48, height: 28),
+            isSelected: const <bool>[false],
+            onPressed: (_) => shrinkTaps++,
+            children: const <Widget>[Text('1')],
+          ),
+          find.byType(ToggleButtons),
+        ),
+        (
+          FilterChip(
+            materialTapTargetSize: size,
+            padding: EdgeInsets.zero,
+            label: const Text('c'),
+            onSelected: (_) => shrinkTaps++,
+          ),
+          find.byType(FilterChip),
+        ),
+      ];
+      for (final (Widget control, Finder _) in controls(MaterialTapTargetSize.padded)) {
+        await pump(IgnorePointer(child: control));
+        expect(_lastGroups().single.rects, isEmpty);
+      }
+      for (final (Widget control, Finder finder) in controls(MaterialTapTargetSize.shrinkWrap)) {
+        await pump(control, tapSize: MaterialTapTargetSize.shrinkWrap);
+        final Rect rect = tester.getRect(finder);
+        expect(rect.height, lessThan(kMinInteractiveDimension));
+        _expectRectsSpan(_lastGroups().single.rects, rect);
+        await tester.tapAt(Offset(rect.center.dx, rect.top - 4));
+        await tester.pumpAndSettle();
+        expect(shrinkTaps, 0);
+      }
+    },
+  );
 }
