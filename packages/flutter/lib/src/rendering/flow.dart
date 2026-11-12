@@ -423,6 +423,7 @@ class RenderFlow extends RenderBox
     super.dispose();
   }
 
+  @internal
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     // Visit the children in the order the delegate painted them during the

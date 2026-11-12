@@ -452,6 +452,7 @@ class RenderSliverMainAxisGroup extends RenderSliver
 
   // Mirrors [paint]: only visible slivers are painted, from the last child to
   // the first, so earlier slivers (such as pinned headers) paint on top.
+  @internal
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     RenderSliver? child = lastChild;

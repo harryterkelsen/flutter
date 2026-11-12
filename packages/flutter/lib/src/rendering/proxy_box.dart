@@ -3894,6 +3894,7 @@ class RenderOffstage extends RenderProxyBox {
   }
 
   // The child is not painted while offstage (see [paint]).
+  @internal
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     if (offstage) {
@@ -4580,6 +4581,7 @@ class RenderFollowerLayer extends RenderProxyBox {
   // not painted. [LayerLink.leader] is updated as leader layers attach during
   // painting, so callers that run after painting, such as the hit-test region
   // pass, see the [link] state of the current frame.
+  @internal
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     if (link.leader == null && !showWhenUnlinked) {

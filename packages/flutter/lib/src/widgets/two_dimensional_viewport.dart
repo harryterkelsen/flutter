@@ -9,6 +9,7 @@
 library;
 
 import 'package:flutter/animation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 
 import 'framework.dart';
@@ -957,6 +958,7 @@ abstract class RenderTwoDimensionalViewport extends RenderBox implements RenderA
 
   // Mirrors [paint]: children in [_keepAliveBucket] are never painted, and
   // only visible children are painted, in child order.
+  @internal
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     RenderBox? child = _firstChild;
