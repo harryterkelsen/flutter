@@ -481,6 +481,7 @@ abstract class RenderViewportBase<ParentDataClass extends ContainerParentDataMix
 
   // Mirrors [_paintContents]: only visible slivers are painted, in
   // [childrenInPaintOrder].
+  @internal
   @override
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     for (final RenderSliver child in childrenInPaintOrder) {

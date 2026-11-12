@@ -1171,7 +1171,6 @@ void main() {
     // Index 1 is displayed: the hidden hit target over platform view 1 does not
     // claim, and platform view 2 starts a group holding the hit target over it.
     indexedStack.index = 1;
-    pumpFrame(phase: EnginePhase.composite);
     expect(
       regionsAfterFrame(),
       _payload(<(int, List<Rect>)>[
@@ -1184,7 +1183,8 @@ void main() {
     indexedStack.index = null;
     expect(regionsAfterFrame(), _payload(<(int, List<Rect>)>[(1, const <Rect>[])]));
 
-    // Back to index 0: its hit target claims again.
+    // Back to index 0: its hit target claims again (nothing is left over from
+    // the null index).
     indexedStack.index = 0;
     expect(
       regionsAfterFrame(),
@@ -1238,21 +1238,23 @@ void main() {
 
   test('RenderFlow children painted with an opacity of zero still claim where they are hit', () {
     // RenderFlow hit tests children it paints fully transparent, so they must
-    // claim their (transformed) rects too.
+    // claim their (transformed) rects too. The transparent child comes first in
+    // child order but is painted after the platform view, so it only claims if
+    // the walk follows the delegate's paint order.
     final flow = RenderFlow(
       delegate: const _PaintOrderFlowDelegate(
-        paintOrder: <int>[0, 1],
-        offsets: <Offset>[Offset.zero, Offset(30, 40)],
-        transparent: <int>{1},
+        paintOrder: <int>[1, 0],
+        offsets: <Offset>[Offset(30, 40), Offset.zero],
+        transparent: <int>{0},
       ),
       children: <RenderBox>[
         RenderConstrainedBox(
-          additionalConstraints: const BoxConstraints.tightFor(width: 400.0, height: 400.0),
-          child: _platformView(1),
-        ),
-        RenderConstrainedBox(
           additionalConstraints: const BoxConstraints.tightFor(width: 100.0, height: 50.0),
           child: _hitTarget(),
+        ),
+        RenderConstrainedBox(
+          additionalConstraints: const BoxConstraints.tightFor(width: 400.0, height: 400.0),
+          child: _platformView(1),
         ),
       ],
     );
