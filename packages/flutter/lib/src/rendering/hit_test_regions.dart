@@ -29,9 +29,9 @@ import 'viewport.dart';
 ///   intersected with any ancestor paint clip. It is used to decide whether a
 ///   render object painted later actually covers a platform view.
 /// * `rects` are the regions, in the root coordinate space, that render
-///   objects painted after this platform view (and before the next one)
-///   report through [RenderObject.visitHitTestRegions], clipped, and kept
-///   only if they overlap a platform view.
+///   boxes painted after this platform view (and before the next one)
+///   report through [RenderBox.visitHitTestRegions], clipped, and kept only
+///   if they overlap a platform view.
 typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Rect> rects});
 
 /// Walks the render tree rooted at [root] in child order (an approximation of
@@ -84,11 +84,13 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   claims a region. Such a render object may still claim its own bounds,
 ///   and a platform view in its subtree still starts a group, because the
 ///   browser still delivers pointer events to the platform view.
-/// * Each render object reports the regions in which it accepts pointer
-///   events through [RenderObject.visitHitTestRegions]. By default, a render
-///   box claims its bounds if [RenderBox.hitTestSelf] returns true at its
-///   center. Boxes that only forward hits to their children do not claim a
-///   region themselves; their children are visited instead. An absorbing
+/// * Each render box reports the regions in which it accepts pointer events
+///   through [RenderBox.visitHitTestRegions]. Render objects that are not
+///   boxes (such as slivers) claim no regions themselves; the boxes inside
+///   them do. By default, a render box claims its bounds if
+///   [RenderBox.hitTestSelf] returns true at its center. Boxes that only
+///   forward hits to their children do not claim a region themselves; their
+///   children are visited instead. An absorbing
 ///   [RenderAbsorbPointer] claims its bounds; its subtree is still visited,
 ///   as described above, so that platform views inside it start their own
 ///   groups.
@@ -195,7 +197,7 @@ Float64List? computeHitTestRegions(RenderObject root) {
   // The transform and hit-test clip of the node whose regions are currently
   // being collected by [claimRegion]. A single visitor is shared by the whole
   // walk so that no closure is allocated per node; this is safe because
-  // [RenderObject.visitHitTestRegions] reports synchronously and never
+  // [RenderBox.visitHitTestRegions] reports synchronously and never
   // re-enters the walk.
   var currentTransform = Matrix4.identity();
   Rect? currentHitTestClip;
@@ -271,8 +273,10 @@ Float64List? computeHitTestRegions(RenderObject root) {
 
     // Nothing can cover a platform view until one has been painted, and
     // render objects that pointer events cannot reach never claim a region.
-    if (groups.isNotEmpty && canClaim) {
-      // visitHitTestRegions is protected, but asking a render object where it
+    // Only boxes claim regions; render objects that are not boxes (such as
+    // slivers) are never asked, and the boxes inside them claim instead.
+    if (groups.isNotEmpty && canClaim && node is RenderBox) {
+      // visitHitTestRegions is protected, but asking a render box where it
       // accepts pointer events is exactly the question this pass needs
       // answered, without running a full hit test.
       currentTransform = transform;
