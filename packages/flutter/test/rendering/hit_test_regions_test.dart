@@ -127,6 +127,39 @@ class _SliverWithRegionsMethod extends RenderSliverToBoxAdapter {
   }
 }
 
+/// A box that fills its (tight) constraints and accepts pointer events only
+/// at exactly [point] (in its local coordinates).
+class _PointHitTestBox extends RenderBox {
+  _PointHitTestBox(this.point);
+
+  final Offset point;
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  bool hitTestSelf(Offset position) => position == point;
+}
+
+/// A painter that paints nothing and is hit only at exactly [point].
+class _PointHitTestPainter extends CustomPainter {
+  const _PointHitTestPainter(this.point);
+
+  final Offset point;
+
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool hitTest(Offset position) => position == point;
+
+  @override
+  bool shouldRepaint(_PointHitTestPainter oldDelegate) => point != oldDelegate.point;
+}
+
 /// The payload expected for [groups], given in paint order as
 /// `(platformViewId, claimedRects)`: for each group, the ID, the number of
 /// rects, and then each rect's left, top, right and bottom multiplied by
@@ -1730,5 +1763,40 @@ void main() {
       ]),
     );
     expect(sliver.visited, isFalse);
+  });
+
+  test('boxes and CustomPaint painters are asked whether the center of the box is hit', () {
+    // Every box is 100x50, so its center is (50, 25) in its local coordinates.
+    const center = Offset(50, 25);
+    final RenderStack stack = _stack(<RenderBox>[
+      _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+      _at(const Rect.fromLTWH(10, 20, 100, 50), _PointHitTestBox(center)),
+      _at(const Rect.fromLTWH(200, 20, 100, 50), _PointHitTestBox(Offset.zero)),
+      _at(
+        const Rect.fromLTWH(10, 100, 100, 50),
+        RenderCustomPaint(painter: const _PointHitTestPainter(center)),
+      ),
+      _at(
+        const Rect.fromLTWH(200, 100, 100, 50),
+        RenderCustomPaint(foregroundPainter: const _PointHitTestPainter(center)),
+      ),
+      _at(
+        const Rect.fromLTWH(10, 200, 100, 50),
+        RenderCustomPaint(foregroundPainter: const _PointHitTestPainter(Offset.zero)),
+      ),
+    ]);
+    expect(
+      regionsFor(stack),
+      _payload(<(int, List<Rect>)>[
+        (
+          1,
+          <Rect>[
+            const Rect.fromLTWH(10, 20, 100, 50),
+            const Rect.fromLTWH(10, 100, 100, 50),
+            const Rect.fromLTWH(200, 100, 100, 50),
+          ],
+        ),
+      ]),
+    );
   });
 }
