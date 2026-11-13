@@ -162,6 +162,10 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 ///   boxes skip [RenderBox.visitHitTestRegions] until another platform
 ///   view starts a new group (and once all attached platform views have been
 ///   visited, covered or clip-missed subtrees are pruned without descending).
+///   Subtrees without platform views ([RenderObject.platformViewCount] is
+///   zero) are skipped entirely until the first platform view is visited.
+///   Once one has been visited, such a subtree is pruned without descending
+///   exactly as if all attached platform views had already been visited.
 /// * Platform views themselves are leaves of the walk; their children (if any)
 ///   are not visited.
 ///
@@ -193,6 +197,20 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     return enableEarlyStop &&
         totalPlatformViews != null &&
         visitedPlatformViews >= totalPlatformViews;
+  }
+
+  // Whether no platform view remains to be visited in [node]'s subtree, either
+  // because every attached platform view has been visited already or because
+  // [node]'s subtree contains none.
+  bool noMorePlatformViewsIn(RenderObject node) {
+    return allPlatformViewsVisited() || (enableEarlyStop && node.platformViewCount == 0);
+  }
+
+  // Whether [node] can be skipped entirely because no platform view has been
+  // visited yet and its subtree contains none: nothing painted before the
+  // first platform view can cover one.
+  bool skipBeforeFirstPlatformView(RenderObject node) {
+    return enableEarlyStop && visitedPlatformViews == 0 && node.platformViewCount == 0;
   }
 
   bool overlapsAnyPlatformView(Rect rect) {
@@ -343,6 +361,11 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     required bool canClaim,
     required int? clipMissedAtGroupCount,
   }) {
+    // Children are already filtered by [visitChild]; this covers the root.
+    if (skipBeforeFirstPlatformView(node)) {
+      return;
+    }
+
     // Boxes that have never been laid out are neither painted nor hit tested,
     // and computing clips or transforms may read size.
     if (node is RenderBox && !node.hasSize) {
@@ -397,7 +420,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       return;
     }
 
-    if (allPlatformViewsVisited() &&
+    if (noMorePlatformViewsIn(node) &&
         (currentGroupFullyCovered || !canClaim || clipMissedAtGroupCount == groups.length)) {
       return;
     }
@@ -428,7 +451,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         node.visitHitTestRegions(claimRegion);
         nodeClaimedOwnBounds = enableEarlyStop && claimedOwnBounds;
       }
-      if (allPlatformViewsVisited() && (currentGroupFullyCovered || nodeClaimedOwnBounds)) {
+      if (noMorePlatformViewsIn(node) && (currentGroupFullyCovered || nodeClaimedOwnBounds)) {
         return;
       }
     }
@@ -455,7 +478,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
           !overlapsAnyPlatformView(descendantsHitTestClip)) {
         descendantsClipMissedAtGroupCount = groups.length;
       }
-      if (allPlatformViewsVisited() && descendantsClipMissedAtGroupCount == groups.length) {
+      if (noMorePlatformViewsIn(node) && descendantsClipMissedAtGroupCount == groups.length) {
         return;
       }
     } else {
@@ -474,7 +497,12 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   }
 
   visitChild = (RenderObject child) {
-    if (allPlatformViewsVisited() && currentGroupFullyCovered) {
+    // Skip platform-view-free children before the first platform view without
+    // computing their transform and clip.
+    if (skipBeforeFirstPlatformView(child)) {
+      return;
+    }
+    if (noMorePlatformViewsIn(child) && currentGroupFullyCovered) {
       return;
     }
     // A box that has never been laid out (for example, an overlay entry
