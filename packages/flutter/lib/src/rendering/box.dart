@@ -3017,11 +3017,8 @@ abstract class RenderBox extends RenderObject {
   /// [RenderTransform] hit tests its child wherever the child is painted, even
   /// outside of the [RenderTransform]'s own bounds.
   ///
-  /// This is used by the pass that, on the web, finds where Flutter content
-  /// painted on top of a platform view (see [PlatformViewRenderBox]) accepts
-  /// pointer events (see [visitHitTestRegions]). When this is false, the
-  /// regions reported by this box's descendants are clipped to this box's
-  /// bounds.
+  /// When this is false, the regions that this box's descendants report
+  /// through [visitHitTestRegions] are clipped to this box's bounds.
   ///
   /// Defaults to false. Subclasses that override [hitTest] to skip the size
   /// check should override this to return true. The value must agree with
@@ -3033,12 +3030,12 @@ abstract class RenderBox extends RenderObject {
   ///
   /// This getter is currently only read by the experimental pass that
   /// computes the hit-test regions of Flutter content painted on top of
-  /// platform views on the web (see
-  /// [RendererBinding.automaticPointerInterceptorsEnabled]). While that pass
-  /// is experimental, this getter is internal to the Flutter framework and may
-  /// change: code in other packages cannot read it or call `super` on it (the
-  /// analyzer reports `invalid_use_of_internal_member` on such references,
-  /// though not on a declaration that overrides it).
+  /// platform views (see [PlatformViewRenderBox]) on the web (see
+  /// [RendererBinding.automaticPointerInterceptorsEnabled]). Until that pass
+  /// is stable, this getter is internal to the Flutter framework and may
+  /// change: the analyzer reports `invalid_use_of_internal_member` when code
+  /// in other packages reads it or calls `super` on it (but not on a
+  /// declaration that overrides it).
   @internal
   @protected
   bool get hitTestsChildrenOutsideBounds => false;
@@ -3090,21 +3087,21 @@ abstract class RenderBox extends RenderObject {
   /// [hitTestChildren]) accepts pointer events in a different area than that
   /// rule describes.
   ///
-  /// This method is currently only called by the experimental pass that
-  /// computes the hit-test regions of Flutter content painted on top of
-  /// platform views on the web (see
-  /// [RendererBinding.automaticPointerInterceptorsEnabled]). While that pass
-  /// is experimental, this method is internal to the Flutter framework and may
-  /// change: code in other packages cannot call it or call `super` on it (the
-  /// analyzer reports `invalid_use_of_internal_member` on such references,
-  /// and on the [HitTestRegionVisitor] parameter type of an override).
+  /// This method is currently only called by the experimental pass described
+  /// above (see [RendererBinding.automaticPointerInterceptorsEnabled]). Until
+  /// that pass is stable, this method is internal to the Flutter framework and
+  /// may change: the analyzer reports `invalid_use_of_internal_member` when
+  /// code in other packages calls it, calls `super` on it, or names
+  /// [HitTestRegionVisitor] (for example, as the parameter type of an
+  /// override), but not on the overriding declaration itself.
   ///
   /// {@tool snippet}
   ///
   /// A render box that only accepts pointer events within a 10 pixel radius of
   /// its center can report just that circle's bounding box (within its
   /// bounds, because [hitTest] rejects positions outside of them), rather than
-  /// its whole bounds:
+  /// its whole bounds. (Outside of the Flutter framework, such an override is
+  /// reported as using an internal member; see above.)
   ///
   /// ```dart
   /// class RenderDot extends RenderBox {
@@ -3116,6 +3113,7 @@ abstract class RenderBox extends RenderObject {
   ///   }
   ///
   ///   @override
+  ///   // ignore: invalid_use_of_internal_member
   ///   void visitHitTestRegions(HitTestRegionVisitor visitor) {
   ///     final Rect dot = Rect.fromCircle(center: size.center(Offset.zero), radius: 10.0);
   ///     visitor(dot.intersect(Offset.zero & size));

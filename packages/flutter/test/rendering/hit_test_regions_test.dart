@@ -118,8 +118,9 @@ class _SliverWithRegionsMethod extends RenderSliverToBoxAdapter {
   final List<Rect> regions;
   bool visited = false;
 
-  // This would override RenderObject.visitHitTestRegions if RenderObject
-  // declared it.
+  // RenderObject does not declare visitHitTestRegions, so this overrides
+  // nothing. If it is ever declared there again, the ignore keeps this test
+  // compiling so that it fails if the walk asks slivers for regions.
   // ignore: annotate_overrides
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
     visited = true;

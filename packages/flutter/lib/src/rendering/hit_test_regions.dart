@@ -54,7 +54,7 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 /// In one sentence: walk the render tree in paint order, tracking the
 /// accumulated paint transform and clip; every time a platform view is
 /// painted, start a new group for it, and every region in which a render
-/// object painted after that accepts pointer events is transformed and
+/// box painted after that accepts pointer events is transformed and
 /// clipped, and, if it overlaps any platform view painted so far, added to
 /// the most recent group.
 ///
@@ -81,9 +81,9 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   descendant of a render object whose [RenderObject.hitTestsChildren] is
 ///   false (such as an ignoring [RenderIgnorePointer] or
 ///   [RenderSliverIgnorePointer], or an absorbing [RenderAbsorbPointer])
-///   claims a region. Such a render object may still claim its own bounds,
-///   and a platform view in its subtree still starts a group, because the
-///   browser still delivers pointer events to the platform view.
+///   claims a region. Such a render object may still claim its own bounds if
+///   it is a box, and a platform view in its subtree still starts a group,
+///   because the browser still delivers pointer events to the platform view.
 /// * Each render box reports the regions in which it accepts pointer events
 ///   through [RenderBox.visitHitTestRegions]. Render objects that are not
 ///   boxes (such as slivers) claim no regions themselves; the boxes inside
@@ -104,7 +104,7 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   [RenderBox.hitTestsChildrenOutsideBounds], so they do not restrict their
 ///   descendants' regions. This restriction does not apply to platform views
 ///   (which receive pointer events wherever they are visible), nor to a render
-///   object's own regions (which may extend beyond its bounds).
+///   box's own regions (which may extend beyond its bounds).
 /// * A claimed rectangle is kept only if it is non-empty after clipping and
 ///   overlaps at least one platform view painted before it. It is attributed
 ///   to the most recently painted platform view (even if it only overlaps an
