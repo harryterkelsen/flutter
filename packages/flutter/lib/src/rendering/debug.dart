@@ -288,12 +288,12 @@ bool debugEnableHitTestRegionsOnAllPlatforms = false;
 ///
 /// By default this is turned off because running additional hit tests on every
 /// frame is expensive. Turn this on in tests to validate custom
-/// [RenderObject.visitHitTestRegions] implementations.
+/// [RenderBox.visitHitTestRegions] implementations.
 ///
 /// See also:
 ///
-///  * [RenderObject.visitHitTestRegions], which reports the hit-test regions
-///    for a render object.
+///  * [RenderBox.visitHitTestRegions], which reports the hit-test regions
+///    for a render box.
 ///  * [PipelineOwner.flushHitTestRegions], which computes and dispatches
 ///    hit-test regions after each frame when
 ///    [RendererBinding.automaticPointerInterceptorsEnabled] is true.
