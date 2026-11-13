@@ -159,7 +159,7 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 ///   rectangle in the same group are deduplicated.
 /// * When [enableEarlyStop] is true (the default), once a claimed rectangle in
 ///   the current group covers all earlier platform views, subsequent render
-///   objects skip [RenderObject.visitHitTestRegions] until another platform
+///   boxes skip [RenderBox.visitHitTestRegions] until another platform
 ///   view starts a new group (and once all attached platform views have been
 ///   visited, covered or clip-missed subtrees are pruned without descending).
 /// * Platform views themselves are leaves of the walk; their children (if any)
@@ -422,7 +422,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         // answered, without running a full hit test.
         currentTransform = transform;
         currentHitTestClip = hitTestClip;
-        currentNodeBounds = checksBounds ? (Offset.zero & (node as RenderBox).size) : null;
+        currentNodeBounds = checksBounds ? (Offset.zero & node.size) : null;
         claimedOwnBounds = false;
         // ignore: invalid_use_of_protected_member
         node.visitHitTestRegions(claimRegion);
@@ -448,7 +448,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     if (restrictsChildren) {
       descendantsHitTestClip = intersectClip(
         hitTestClip,
-        toGlobal(Offset.zero & (node as RenderBox).size, transform),
+        toGlobal(Offset.zero & node.size, transform),
       );
       if (groups.isNotEmpty &&
           descendantsClipMissedAtGroupCount != groups.length &&
