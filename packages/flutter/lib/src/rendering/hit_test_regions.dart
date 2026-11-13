@@ -4,6 +4,7 @@
 
 /// @docImport 'package:flutter/services.dart';
 ///
+/// @docImport 'proxy_box.dart';
 /// @docImport 'proxy_sliver.dart';
 /// @docImport 'stack.dart';
 /// @docImport 'view.dart';
@@ -15,7 +16,6 @@ import 'package:vector_math/vector_math_64.dart';
 import 'box.dart';
 import 'object.dart';
 import 'platform_view.dart';
-import 'proxy_box.dart';
 import 'viewport.dart';
 
 /// The hit-test regions collected for a single [PlatformViewRenderBox].
@@ -28,15 +28,16 @@ import 'viewport.dart';
 /// * `platformViewRect` is the platform view's bounds in the root coordinate space,
 ///   intersected with any ancestor paint clip. It is used to decide whether a
 ///   render object painted later actually covers a platform view.
-/// * `rects` are the bounds, in the root coordinate space, of the render
-///   objects painted after this platform view (and before the next one) that
-///   overlap a platform view and accept pointer events.
+/// * `rects` are the regions, in the root coordinate space, that render
+///   boxes painted after this platform view (and before the next one)
+///   report through [RenderBox.visitHitTestRegions], clipped, and kept only
+///   if they overlap a platform view.
 typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Rect> rects});
 
 /// Walks the render tree rooted at [root] in child order (an approximation of
-/// paint order; see below) and encodes the bounding rectangles of render
-/// objects that paint on top of one or more [PlatformViewRenderBox] instances
-/// and claim pointer events.
+/// paint order; see below) and encodes the regions in which render objects
+/// that paint on top of one or more [PlatformViewRenderBox] instances accept
+/// pointer events.
 ///
 /// The rectangles are in [root]'s coordinate space, which is physical pixels
 /// when [root] is a [RenderView].
@@ -52,9 +53,10 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///
 /// In one sentence: walk the render tree in paint order, tracking the
 /// accumulated paint transform and clip; every time a platform view is
-/// painted, start a new group for it, and every render box painted after that
-/// which would accept a pointer event and overlaps any platform view painted
-/// so far contributes its clipped, transformed bounds to the most recent group.
+/// painted, start a new group for it, and every region in which a render
+/// box painted after that accepts pointer events is transformed and
+/// clipped, and, if it overlaps any platform view painted so far, added to
+/// the most recent group.
 ///
 /// In more detail:
 ///
@@ -79,15 +81,30 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   descendant of a render object whose [RenderObject.hitTestsChildren] is
 ///   false (such as an ignoring [RenderIgnorePointer] or
 ///   [RenderSliverIgnorePointer], or an absorbing [RenderAbsorbPointer])
-///   claims a region. Such a render object may still claim its own bounds,
-///   and a platform view in its subtree still starts a group, because the
-///   browser still delivers pointer events to the platform view.
-/// * A render box claims its bounds if it is an absorbing
-///   [RenderAbsorbPointer] (its subtree is still visited, as described above,
-///   so that platform views inside it start their own groups), or if
+///   claims a region. Such a render object may still claim its own bounds if
+///   it is a box, and a platform view in its subtree still starts a group,
+///   because the browser still delivers pointer events to the platform view.
+/// * Each render box reports the regions in which it accepts pointer events
+///   through [RenderBox.visitHitTestRegions]. Render objects that are not
+///   boxes (such as slivers) claim no regions themselves; the boxes inside
+///   them do. By default, a render box claims its bounds if
 ///   [RenderBox.hitTestSelf] returns true at its center. Boxes that only
 ///   forward hits to their children do not claim a region themselves; their
-///   children are visited instead.
+///   children are visited instead. An absorbing
+///   [RenderAbsorbPointer] claims its bounds; its subtree is still visited,
+///   as described above, so that platform views inside it start their own
+///   groups.
+/// * Besides the paint clip, a claimed rectangle is clipped to the bounds of
+///   each ancestor [RenderBox] whose [RenderBox.hitTestsChildrenOutsideBounds]
+///   is false, because such a box rejects pointer events outside of its size
+///   before hit testing its children (as [RenderBox.hitTest] does by
+///   default), so that a child overflowing it only claims the part that can be
+///   hit. Boxes that hit test their children without checking their own size
+///   (for example, [RenderTransform]) return true from
+///   [RenderBox.hitTestsChildrenOutsideBounds], so they do not restrict their
+///   descendants' regions. This restriction does not apply to platform views
+///   (which receive pointer events wherever they are visible), nor to a render
+///   box's own regions (which may extend beyond its bounds).
 /// * A claimed rectangle is kept only if it is non-empty after clipping and
 ///   overlaps at least one platform view painted before it. It is attributed
 ///   to the most recently painted platform view (even if it only overlaps an
@@ -117,14 +134,20 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 Float64List? computeHitTestRegions(RenderObject root) {
   final groups = <_PlatformViewHitTestGroup>[];
 
-  // Records [node]'s bounds as a hit-test region if they cover a platform
-  // view that has already been painted.
-  void addClaimedRect(RenderBox node, Matrix4 transform, Rect? clip) {
-    // Map the node's local bounds into the root coordinate space and clip them
-    // to what is actually visible.
-    Rect claimedRect = MatrixUtils.transformRect(transform, Offset.zero & node.size);
-    if (clip != null) {
-      claimedRect = claimedRect.intersect(clip);
+  // Records [localRect], in the local coordinates described by [transform], as
+  // a hit-test region if it covers a platform view that has already been
+  // painted.
+  void addClaimedRect(Rect localRect, Matrix4 transform, Rect? hitTestClip) {
+    // An empty rect (including an inverted one) contains no points, but its
+    // transformed bounding box could be non-empty, so reject it up front.
+    if (localRect.isEmpty) {
+      return;
+    }
+    // Map the local rect into the root coordinate space and clip it to what
+    // can actually be hit.
+    Rect claimedRect = MatrixUtils.transformRect(transform, localRect);
+    if (hitTestClip != null) {
+      claimedRect = claimedRect.intersect(hitTestClip);
     }
     if (!claimedRect.isFinite || claimedRect.isEmpty) {
       return;
@@ -161,12 +184,41 @@ Float64List? computeHitTestRegions(RenderObject root) {
     return parent.describeApproximatePaintClip(child);
   }
 
-  // Visits [node] and its descendants in paint order (see above). [transform] maps
-  // [node]'s local coordinates to the root's, [clip] is the accumulated paint
-  // clip in root coordinates (or null if unclipped), and [canClaim] is false
-  // when pointer events cannot reach [node] because an ancestor's
-  // [RenderObject.hitTestsChildren] is false.
-  void visit(RenderObject node, Matrix4 transform, Rect? clip, {required bool canClaim}) {
+  // Maps [localRect] by [transform] into the root coordinate space.
+  Rect toGlobal(Rect localRect, Matrix4 transform) {
+    return localRect.isEmpty ? Rect.zero : MatrixUtils.transformRect(transform, localRect);
+  }
+
+  // Intersects [clip] (null meaning unclipped) with [globalRect].
+  Rect intersectClip(Rect? clip, Rect globalRect) {
+    return clip == null ? globalRect : clip.intersect(globalRect);
+  }
+
+  // The transform and hit-test clip of the node whose regions are currently
+  // being collected by [claimRegion]. A single visitor is shared by the whole
+  // walk so that no closure is allocated per node; this is safe because
+  // [RenderBox.visitHitTestRegions] reports synchronously and never
+  // re-enters the walk.
+  var currentTransform = Matrix4.identity();
+  Rect? currentHitTestClip;
+  void claimRegion(Rect localRect) {
+    addClaimedRect(localRect, currentTransform, currentHitTestClip);
+  }
+
+  // Visits [node] and its descendants in paint order (see above).
+  // [transform] maps [node]'s local coordinates to the root's, [clip] is the
+  // accumulated paint clip in root coordinates (or null if unclipped),
+  // [hitTestClip] is [clip] further restricted to the bounds of the ancestor
+  // boxes whose children cannot be hit outside of their bounds, and
+  // [canClaim] is false when pointer events cannot reach [node] because an
+  // ancestor's [RenderObject.hitTestsChildren] is false.
+  void visit(
+    RenderObject node,
+    Matrix4 transform,
+    Rect? clip,
+    Rect? hitTestClip, {
+    required bool canClaim,
+  }) {
     // Boxes that have never been laid out are neither painted nor hit tested,
     // and computing clips or transforms may read size.
     if (node is RenderBox && !node.hasSize) {
@@ -190,7 +242,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
     if (det2d == 0.0 || !det2d.isFinite) {
       return;
     }
-
     // Pointer events reach [node]'s children only if they reach [node] and
     // [node] passes them on. A render object that stops them from reaching its
     // children (for example, an ignoring IgnorePointer or an absorbing
@@ -206,13 +257,11 @@ Float64List? computeHitTestRegions(RenderObject root) {
     // paints on top of it.
     if (node is PlatformViewRenderBox) {
       if (!node.size.isEmpty) {
-        Rect platformViewRect = MatrixUtils.transformRect(transform, Offset.zero & node.size);
-        if (!platformViewRect.isFinite || platformViewRect.isEmpty) {
+        final Rect globalRect = toGlobal(Offset.zero & node.size, transform);
+        if (!globalRect.isFinite || globalRect.isEmpty) {
           return;
         }
-        if (clip != null) {
-          platformViewRect = platformViewRect.intersect(clip);
-        }
+        final Rect platformViewRect = intersectClip(clip, globalRect);
         groups.add((
           viewId: node.controller.viewId,
           platformViewRect: platformViewRect,
@@ -224,28 +273,38 @@ Float64List? computeHitTestRegions(RenderObject root) {
 
     // Nothing can cover a platform view until one has been painted, and
     // render objects that pointer events cannot reach never claim a region.
-    if (groups.isNotEmpty && canClaim && node is RenderBox && !node.size.isEmpty) {
-      if (node is RenderAbsorbPointer) {
-        // An absorbing AbsorbPointer claims its own bounds. Its subtree is
-        // still visited (with claiming suppressed, because its
-        // hitTestsChildren is false) so that platform views inside it start
-        // their own groups.
-        if (node.absorbing) {
-          addClaimedRect(node, transform, clip);
-        }
-      } else {
-        // hitTestSelf is protected, but asking whether a box would accept a
-        // pointer event at its center is exactly the question this pass needs
-        // answered, without running a full hit test.
+    // Only boxes claim regions; render objects that are not boxes (such as
+    // slivers) are never asked, and the boxes inside them claim instead.
+    if (groups.isNotEmpty && canClaim && node is RenderBox) {
+      // visitHitTestRegions is protected, but asking a render box where it
+      // accepts pointer events is exactly the question this pass needs
+      // answered, without running a full hit test.
+      currentTransform = transform;
+      currentHitTestClip = hitTestClip;
+      // ignore: invalid_use_of_protected_member
+      node.visitHitTestRegions(claimRegion);
+    }
+
+    // A box whose hitTest rejects positions outside of its bounds before hit
+    // testing its children restricts where its descendants can be hit, even
+    // if it does not clip their painting.
+    //
+    // hitTestsChildrenOutsideBounds is protected, but whether a box's
+    // children can be hit outside of its bounds is exactly what this pass
+    // needs to know.
+    //
+    // The hit-test clip is only read when a region is claimed, so it is not
+    // computed for subtrees in which nothing can claim.
+    var descendantsHitTestClip = hitTestClip;
+    if (childrenCanClaim &&
+        node is RenderBox &&
+        node.hasSize &&
         // ignore: invalid_use_of_protected_member
-        final bool hitsSelf = node.hitTestSelf(node.size.center(Offset.zero));
-        if (hitsSelf) {
-          // The box itself accepts pointer events (for example, it paints an
-          // opaque background or handles gestures), so its bounds are a
-          // region.
-          addClaimedRect(node, transform, clip);
-        }
-      }
+        !node.hitTestsChildrenOutsideBounds) {
+      descendantsHitTestClip = intersectClip(
+        hitTestClip,
+        toGlobal(Offset.zero & node.size, transform),
+      );
     }
 
     // Descend into the painted children in paint order, accumulating each
@@ -258,20 +317,22 @@ Float64List? computeHitTestRegions(RenderObject root) {
         return;
       }
       var childClip = clip;
+      var childHitTestClip = descendantsHitTestClip;
       final Rect? localClip = paintClipOf(node, child);
       if (localClip != null) {
-        final Rect globalClip = localClip.isEmpty
-            ? Rect.zero
-            : MatrixUtils.transformRect(transform, localClip);
-        childClip = childClip == null ? globalClip : childClip.intersect(globalClip);
+        final Rect globalClip = toGlobal(localClip, transform);
+        childClip = intersectClip(childClip, globalClip);
+        if (childrenCanClaim) {
+          childHitTestClip = intersectClip(childHitTestClip, globalClip);
+        }
       }
       final Matrix4 childTransform = transform.clone();
       node.applyPaintTransform(child, childTransform);
-      visit(child, childTransform, childClip, canClaim: childrenCanClaim);
+      visit(child, childTransform, childClip, childHitTestClip, canClaim: childrenCanClaim);
     });
   }
 
-  visit(root, Matrix4.identity(), null, canClaim: true);
+  visit(root, Matrix4.identity(), null, null, canClaim: true);
 
   if (groups.isEmpty) {
     return null;

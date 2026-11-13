@@ -4,11 +4,14 @@
 
 /// @docImport 'package:flutter/widgets.dart';
 ///
+/// @docImport 'binding.dart';
 /// @docImport 'image.dart';
 /// @docImport 'paragraph.dart';
+/// @docImport 'platform_view.dart';
 /// @docImport 'proxy_box.dart';
 /// @docImport 'shifted_box.dart';
 /// @docImport 'sliver.dart';
+/// @docImport 'view.dart';
 /// @docImport 'viewport.dart';
 library;
 
@@ -3004,6 +3007,137 @@ abstract class RenderBox extends RenderObject {
   /// function, then you don't need to implement this function.
   @protected
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) => false;
+
+  /// Whether this box's children can receive pointer events at positions
+  /// outside of this box's bounds.
+  ///
+  /// This should be true when this box's [hitTest] calls [hitTestChildren]
+  /// without first checking that the position is within its [size] (a check
+  /// that the default [RenderBox.hitTest] performs). For example,
+  /// [RenderTransform] hit tests its child wherever the child is painted, even
+  /// outside of the [RenderTransform]'s own bounds.
+  ///
+  /// When this is false, the regions that this box's descendants report
+  /// through [visitHitTestRegions] are clipped to this box's bounds.
+  ///
+  /// Defaults to false. Subclasses that override [hitTest] to skip the size
+  /// check should override this to return true. The value must agree with
+  /// [hitTest]: if it is false while [hitTest] hits children outside of this
+  /// box's bounds, pointer events there go to the platform view instead of
+  /// Flutter, and if it is true while [hitTest] rejects positions outside of
+  /// this box's bounds, pointer events there go to Flutter instead of the
+  /// platform view.
+  ///
+  /// This getter is currently only read by the experimental pass that
+  /// computes the hit-test regions of Flutter content painted on top of
+  /// platform views (see [PlatformViewRenderBox]) on the web (see
+  /// [RendererBinding.automaticPointerInterceptorsEnabled]). Until that pass
+  /// is stable, this getter is internal to the Flutter framework and may
+  /// change: the analyzer reports `invalid_use_of_internal_member` when code
+  /// in other packages reads it or calls `super` on it (but not on a
+  /// declaration that overrides it).
+  @internal
+  @protected
+  bool get hitTestsChildrenOutsideBounds => false;
+
+  /// Calls [visitor] with each rectangle, in this box's local coordinate
+  /// space, in which this box itself accepts pointer events.
+  ///
+  /// This is used to find the parts of the screen where Flutter content that
+  /// is painted on top of a platform view (see [PlatformViewRenderBox]) wants
+  /// pointer events, so that pointer events there can be routed to Flutter
+  /// rather than to the platform view. It is only consulted for boxes painted
+  /// after a platform view. It is not consulted for the descendants of a
+  /// render object whose [hitTestsChildren] is false (such as an ignoring
+  /// [RenderIgnorePointer] or an absorbing [RenderAbsorbPointer]), nor for
+  /// children that [visitChildrenInPaintOrder] skips (such as the child of an
+  /// offstage [RenderOffstage]). It is still consulted for a box whose
+  /// [hitTestsChildren] is false.
+  ///
+  /// This method is declared on [RenderBox] rather than on [RenderObject]
+  /// because the default implementation relies on [size] and [hitTestSelf],
+  /// which only boxes have. Render objects that are not boxes, such as
+  /// slivers, claim no regions themselves: the regions in a scroll view are
+  /// claimed by the boxes around and inside its slivers.
+  ///
+  /// The rectangles passed to [visitor] are unclipped local rectangles: they do
+  /// not need to be clipped to this box's bounds (they may extend beyond them,
+  /// if this box accepts pointer events there), nor to any clip applied by an
+  /// ancestor. The caller maps each rectangle into the coordinate space of the
+  /// root of the walk (physical pixels for a [RenderView]) using the
+  /// ancestors' [applyPaintTransform], and clips it to the ancestors' paint
+  /// clips and to the bounds of each ancestor [RenderBox] whose
+  /// [hitTestsChildrenOutsideBounds] is false.
+  ///
+  /// Only report the rectangles in which this box accepts pointer events on
+  /// its own behalf; regions claimed by its children are collected by visiting
+  /// the children. Rectangles may overlap, and may be larger than the exact
+  /// area in which this box accepts pointer events (for example, the bounding
+  /// box of a circle), but a box should not report rectangles in which it
+  /// never accepts pointer events, because pointer events there would then not
+  /// reach the platform view. For example, a box whose [hitTest] checks its
+  /// size should not report rectangles outside of its bounds.
+  ///
+  /// The [visitor] must be called synchronously, and must not be retained
+  /// after this method returns.
+  ///
+  /// The default implementation reports this box's bounds if [hitTestSelf]
+  /// returns true at the center of its bounds, and nothing otherwise. Override
+  /// this method in boxes whose hit test (for example a custom [hitTest] or
+  /// [hitTestChildren]) accepts pointer events in a different area than that
+  /// rule describes.
+  ///
+  /// This method is currently only called by the experimental pass described
+  /// above (see [RendererBinding.automaticPointerInterceptorsEnabled]). Until
+  /// that pass is stable, this method is internal to the Flutter framework and
+  /// may change: the analyzer reports `invalid_use_of_internal_member` when
+  /// code in other packages calls it, calls `super` on it, or names
+  /// [HitTestRegionVisitor] (for example, as the parameter type of an
+  /// override), but not on the overriding declaration itself.
+  ///
+  /// {@tool snippet}
+  ///
+  /// A render box that only accepts pointer events within a 10 pixel radius of
+  /// its center can report just that circle's bounding box (within its
+  /// bounds, because [hitTest] rejects positions outside of them), rather than
+  /// its whole bounds. (Outside of the Flutter framework, such an override is
+  /// reported as using an internal member; see above.)
+  ///
+  /// ```dart
+  /// class RenderDot extends RenderBox {
+  ///   // ...
+  ///
+  ///   @override
+  ///   bool hitTestSelf(Offset position) {
+  ///     return (position - size.center(Offset.zero)).distance <= 10.0;
+  ///   }
+  ///
+  ///   @override
+  ///   // ignore: invalid_use_of_internal_member
+  ///   void visitHitTestRegions(HitTestRegionVisitor visitor) {
+  ///     final Rect dot = Rect.fromCircle(center: size.center(Offset.zero), radius: 10.0);
+  ///     visitor(dot.intersect(Offset.zero & size));
+  ///   }
+  /// }
+  /// ```
+  /// {@end-tool}
+  ///
+  /// See also:
+  ///
+  ///  * [visitChildrenInPaintOrder], which determines which render objects are
+  ///    painted on top of a platform view.
+  ///  * [describeApproximatePaintClip], which determines how the rectangles
+  ///    reported by descendants are clipped.
+  @internal
+  @protected
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    if (!hasSize || size.isEmpty) {
+      return;
+    }
+    if (hitTestSelf(size.center(Offset.zero))) {
+      visitor(Offset.zero & size);
+    }
+  }
 
   /// Multiply the transform from the parent's coordinate system to this box's
   /// coordinate system into the given transform.

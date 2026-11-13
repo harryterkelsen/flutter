@@ -2715,6 +2715,12 @@ class RenderTransform extends RenderProxyBox {
     return hitTestChildren(result, position: position);
   }
 
+  // [hitTest] does not check whether the position is within this box's size.
+  @override
+  @internal
+  @protected
+  bool get hitTestsChildrenOutsideBounds => true;
+
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
     assert(!transformHitTests || _effectiveTransform != null);
@@ -3099,6 +3105,12 @@ class RenderFractionalTranslation extends RenderProxyBox {
     // position interact.
     return hitTestChildren(result, position: position);
   }
+
+  // [hitTest] does not check whether the position is within this box's size.
+  @override
+  @internal
+  @protected
+  bool get hitTestsChildrenOutsideBounds => true;
 
   /// When set to true, hit tests are performed based on the position of the
   /// child as it is painted. When set to false, hit tests are performed
@@ -3974,6 +3986,23 @@ class RenderAbsorbPointer extends RenderProxyBox {
   bool get hitTestsChildren => !absorbing;
 
   @override
+  @internal
+  @protected
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // While absorbing, every pointer event within this box's bounds is
+    // swallowed, whether or not its child would accept it. (Its descendants
+    // claim no regions while it is absorbing, because hitTestsChildren is
+    // false.)
+    if (absorbing) {
+      if (hasSize && !size.isEmpty) {
+        visitor(Offset.zero & size);
+      }
+      return;
+    }
+    super.visitHitTestRegions(visitor);
+  }
+
+  @override
   void describeSemanticsConfiguration(SemanticsConfiguration config) {
     super.describeSemanticsConfiguration(config);
     config.isBlockingUserActions = absorbing;
@@ -4575,6 +4604,12 @@ class RenderFollowerLayer extends RenderProxyBox {
     // position interact.
     return hitTestChildren(result, position: position);
   }
+
+  // [hitTest] does not check whether the position is within this box's size.
+  @override
+  @internal
+  @protected
+  bool get hitTestsChildrenOutsideBounds => true;
 
   // While unlinked with [showWhenUnlinked] false, the [FollowerLayer] does not
   // add the child to the scene (and [hitTest] returns false), so the child is
