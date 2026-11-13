@@ -7,15 +7,16 @@
 /// @docImport 'proxy_box.dart';
 /// @docImport 'proxy_sliver.dart';
 /// @docImport 'stack.dart';
-/// @docImport 'view.dart';
 library;
 
 import 'package:flutter/foundation.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 import 'box.dart';
+import 'debug.dart';
 import 'object.dart';
 import 'platform_view.dart';
+import 'view.dart';
 import 'viewport.dart';
 
 /// The hit-test regions collected for a single [PlatformViewRenderBox].
@@ -33,6 +34,68 @@ import 'viewport.dart';
 ///   report through [RenderBox.visitHitTestRegions], clipped, and kept only
 ///   if they overlap a platform view.
 typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Rect> rects});
+
+typedef _DebugPlatformViewInfo = ({
+  PlatformViewRenderBox box,
+  bool canClaim,
+  Rect? hitTestClip,
+  List<RenderObject> claimers,
+});
+
+class _DebugHitTestRegionTracker {
+  final List<_DebugPlatformViewInfo> platformViews = <_DebugPlatformViewInfo>[];
+  final Map<RenderObject, int> visitOrder = <RenderObject, int>{};
+  var _nextVisitOrder = 0;
+  RenderObject? currentClaimer;
+
+  bool recordVisit(RenderObject node) {
+    visitOrder[node] = _nextVisitOrder++;
+    return true;
+  }
+
+  bool addPlatformView(
+    PlatformViewRenderBox box, {
+    required bool canClaim,
+    required Rect? hitTestClip,
+  }) {
+    platformViews.add((
+      box: box,
+      canClaim: canClaim,
+      hitTestClip: hitTestClip,
+      claimers: <RenderObject>[],
+    ));
+    return true;
+  }
+
+  bool setCurrentClaimer(RenderObject node) {
+    currentClaimer = node;
+    return true;
+  }
+
+  bool compactAndAddClaim(List<Rect> rects, Rect claimedRect) {
+    final List<RenderObject> claimers = platformViews.last.claimers;
+    var writeIndex = 0;
+    for (var i = 0; i < rects.length; i++) {
+      if (!_rectContains(claimedRect, rects[i])) {
+        claimers[writeIndex++] = claimers[i];
+      }
+    }
+    claimers
+      ..length = writeIndex
+      ..add(currentClaimer!);
+    return true;
+  }
+
+  bool verify(RenderObject root, List<_PlatformViewHitTestGroup> groups) {
+    _debugVerifyHitTestRegions(
+      root: root,
+      groups: groups,
+      platformViews: platformViews,
+      visitOrder: visitOrder,
+    );
+    return true;
+  }
+}
 
 /// Whether [outer] completely contains [inner] (including its edges).
 bool _rectContains(Rect outer, Rect inner) {
@@ -168,6 +231,9 @@ Rect _toGlobal(Rect localRect, Matrix4 transform) {
 ///   exactly as if all attached platform views had already been visited.
 /// * Platform views themselves are leaves of the walk; their children (if any)
 ///   are not visited.
+/// * In debug builds, setting [debugCheckHitTestRegions] to true cross-checks
+///   the computed regions against [RenderBox.hitTest] after the walk completes
+///   to detect over-claimed and under-claimed regions.
 ///
 /// ## Encoding
 ///
@@ -192,6 +258,11 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   final int? totalPlatformViews = root.owner?.attachedPlatformViewCount;
   var visitedPlatformViews = 0;
   var currentGroupFullyCovered = false;
+
+  _DebugHitTestRegionTracker? debugTracker;
+  assert(
+    !debugCheckHitTestRegions || (debugTracker = _DebugHitTestRegionTracker()).recordVisit(root),
+  );
 
   bool allPlatformViewsVisited() {
     return enableEarlyStop &&
@@ -260,6 +331,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         return;
       }
     }
+    assert(debugTracker == null || debugTracker.compactAndAddClaim(rects, claimedRect));
     var writeIndex = 0;
     for (var i = 0; i < rects.length; i++) {
       final Rect existing = rects[i];
@@ -415,6 +487,10 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
           platformViewRect: platformViewRect,
           rects: <Rect>[],
         ));
+        assert(
+          debugTracker == null ||
+              debugTracker.addPlatformView(node, canClaim: canClaim, hitTestClip: hitTestClip),
+        );
         currentGroupFullyCovered = false;
       }
       return;
@@ -447,6 +523,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         currentHitTestClip = hitTestClip;
         currentNodeBounds = checksBounds ? (Offset.zero & node.size) : null;
         claimedOwnBounds = false;
+        assert(debugTracker == null || debugTracker.setCurrentClaimer(node));
         // ignore: invalid_use_of_protected_member
         node.visitHitTestRegions(claimRegion);
         nodeClaimedOwnBounds = enableEarlyStop && claimedOwnBounds;
@@ -497,6 +574,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
   }
 
   visitChild = (RenderObject child) {
+    assert(debugTracker == null || debugTracker.recordVisit(child));
     // Skip platform-view-free children before the first platform view without
     // computing their transform and clip.
     if (skipBeforeFirstPlatformView(child)) {
@@ -575,6 +653,8 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     return null;
   }
 
+  assert(debugTracker == null || debugTracker.verify(root, groups));
+
   // Flatten the groups into the encoding described above: for each group,
   // [viewId, rectCount] followed by rectCount * [left, top, right, bottom].
   var totalFloats = 0;
@@ -595,4 +675,392 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     }
   }
   return payload;
+}
+
+/// Cross-checks the [groups] produced by [computeHitTestRegions] against actual
+/// [RenderBox.hitTest] results at sample points over each platform view.
+///
+/// Reports at most one [FlutterError] per over-claiming or under-claiming target
+/// per pass, skipping sample points shadowed by a platform view painted later
+/// (which owns hit-test routing at those points in its own group).
+void _debugVerifyHitTestRegions({
+  required RenderObject root,
+  required List<_PlatformViewHitTestGroup> groups,
+  required List<_DebugPlatformViewInfo> platformViews,
+  required Map<RenderObject, int> visitOrder,
+}) {
+  final RenderBox rootBox;
+  Matrix4? rootToChild;
+  if (root is RenderView) {
+    if (!root.hasConfiguration) {
+      return;
+    }
+    final RenderBox? child = root.child;
+    if (child == null || !child.hasSize) {
+      return;
+    }
+    final transform = Matrix4.identity();
+    root.applyPaintTransform(child, transform);
+    if (transform.invert() == 0.0) {
+      return;
+    }
+    rootBox = child;
+    rootToChild = transform;
+  } else if (root is RenderBox) {
+    if (!root.hasSize) {
+      return;
+    }
+    rootBox = root;
+  } else {
+    return;
+  }
+
+  final platformViewAncestors = <Set<RenderObject>>[
+    for (final _DebugPlatformViewInfo platformView in platformViews)
+      <RenderObject>{
+        for (
+          RenderObject? ancestor = platformView.box.parent;
+          ancestor != null;
+          ancestor = ancestor.parent
+        )
+          ancestor,
+      },
+  ];
+
+  Offset toRootBoxLocal(Offset point) {
+    return rootToChild == null ? point : MatrixUtils.transformPoint(rootToChild, point);
+  }
+
+  (bool hit, BoxHitTestResult result) hitTestAt(Offset point) {
+    final result = BoxHitTestResult();
+    return (rootBox.hitTest(result, position: toRootBoxLocal(point)), result);
+  }
+
+  bool isDescendantOf(RenderObject node, RenderObject ancestor) {
+    for (RenderObject? parent = node.parent; parent != null; parent = parent.parent) {
+      if (identical(parent, ancestor)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Entries in [BoxHitTestResult.path] are ordered leaf-to-root, except when
+  // translucent targets (such as HitTestBehavior.translucent) let hit testing
+  // continue into earlier sibling branches before appending themselves at the
+  // end. Walking from the root end while each entry descends from the previous
+  // one isolates the primary opaque target chain that terminated hit testing.
+  RenderObject? opaqueHitRenderObject(BoxHitTestResult result) {
+    RenderObject? current;
+    final Iterable<HitTestEntry> path = result.path;
+    final List<HitTestEntry> entries = path is List<HitTestEntry>
+        ? path
+        : path.toList(growable: false);
+    for (int i = entries.length - 1; i >= 0; i--) {
+      final Object target = entries[i].target;
+      if (target is! RenderObject) {
+        continue;
+      }
+      if (current == null || identical(target, current) || isDescendantOf(target, current)) {
+        current = target;
+      } else {
+        break;
+      }
+    }
+    return current;
+  }
+
+  bool resultIncludesPlatformViewInRange(BoxHitTestResult result, int minIndex, int maxIndex) {
+    for (final HitTestEntry entry in result.path) {
+      final Object target = entry.target;
+      if (target is PlatformViewRenderBox) {
+        for (var k = minIndex; k <= maxIndex; k++) {
+          if (identical(target, platformViews[k].box)) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  bool didOpaqueTargetAbovePlatformViewAccept(
+    int platformViewIndex,
+    Offset sample,
+    BoxHitTestResult result,
+  ) {
+    final _DebugPlatformViewInfo platformViewInfo = platformViews[platformViewIndex];
+    final Set<RenderObject> ancestors = platformViewAncestors[platformViewIndex];
+    final RenderObject? hitObject = opaqueHitRenderObject(result);
+    if (hitObject != null && !ancestors.contains(hitObject)) {
+      if (identical(hitObject, platformViewInfo.box)) {
+        return false;
+      }
+      // [hitObject] is on a sibling subtree of the platform view; compare
+      // paint-order visit indices at the lowest common ancestor.
+      RenderObject branch = hitObject;
+      RenderObject? parent = branch.parent;
+      while (parent != null && !ancestors.contains(parent)) {
+        branch = parent;
+        parent = branch.parent;
+      }
+      final int? branchOrder = parent == null ? null : visitOrder[branch];
+      final int? platformViewOrder = visitOrder[platformViewInfo.box];
+      return branchOrder != null && platformViewOrder != null && branchOrder > platformViewOrder;
+    }
+
+    // Otherwise [hitObject] is an ancestor of the platform view (for example,
+    // an AbsorbPointer blocking children, or an opaque Scaffold painted behind
+    // a transparent/ignored platform view). If the platform view itself would
+    // accept hits when unblocked, the ancestor intercepted a hit over it.
+    final Rect? platformViewClip = platformViewInfo.hitTestClip;
+    if (platformViewInfo.canClaim &&
+        (platformViewClip == null || platformViewClip.contains(sample)) &&
+        // ignore: invalid_use_of_protected_member
+        platformViewInfo.box.hitTestSelf(Offset.zero)) {
+      return true;
+    }
+
+    // When the platform view itself ignores hits, re-test only sibling branches
+    // of the lowest common ancestor painted after the platform view so opaque
+    // ancestors painted behind it do not trigger false under-claims.
+    final RenderObject lca = hitObject ?? rootBox;
+    if (lca is! RenderBox || !lca.hasSize) {
+      return false;
+    }
+    Offset? lcaLocalPosition;
+    if (hitObject != null) {
+      for (final HitTestEntry entry in result.path) {
+        if (identical(entry.target, lca) && entry is BoxHitTestEntry) {
+          lcaLocalPosition = entry.localPosition;
+          break;
+        }
+      }
+    } else if (identical(lca, rootBox)) {
+      lcaLocalPosition = toRootBoxLocal(sample);
+    }
+    final int? platformViewOrder = visitOrder[platformViewInfo.box];
+    if (lcaLocalPosition == null || platformViewOrder == null) {
+      return false;
+    }
+    final Offset position = lcaLocalPosition;
+    final childTransform = Matrix4.identity();
+    for (final MapEntry<RenderObject, int> visited in visitOrder.entries) {
+      final RenderObject child = visited.key;
+      if (visited.value > platformViewOrder &&
+          identical(child.parent, lca) &&
+          child is RenderBox &&
+          child.hasSize) {
+        childTransform.setIdentity();
+        lca.applyPaintTransform(child, childTransform);
+        final bool childAccepted = BoxHitTestResult().addWithPaintTransform(
+          transform: childTransform,
+          position: position,
+          hitTest: (BoxHitTestResult r, Offset pos) => child.hitTest(r, position: pos),
+        );
+        if (childAccepted) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  (bool accepted, BoxHitTestResult result) hitOpaqueTargetAbovePlatformView(
+    Offset point, {
+    required int platformViewIndex,
+    required int maxBlockingPlatformViewIndex,
+  }) {
+    final (bool hit, BoxHitTestResult result) = hitTestAt(point);
+    final bool accepted =
+        hit &&
+        !resultIncludesPlatformViewInRange(
+          result,
+          platformViewIndex,
+          maxBlockingPlatformViewIndex,
+        ) &&
+        didOpaqueTargetAbovePlatformViewAccept(platformViewIndex, point, result);
+    return (accepted, result);
+  }
+
+  // Points covered by a platform view painted later belong to that later
+  // platform view's group rather than an earlier group underneath it.
+  bool isCoveredByLaterPlatformView(Offset point, int afterGroup) {
+    for (int k = afterGroup + 1; k < groups.length; k++) {
+      if (groups[k].platformViewRect.contains(point)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool isClaimedInOrAfterGroup(Offset point, int startGroup) {
+    for (int g = groups.length - 1; g >= startGroup; g--) {
+      final List<Rect> rects = groups[g].rects;
+      for (var r = 0; r < rects.length; r++) {
+        if (rects[r].contains(point)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  final reportedMismatches = <(bool, Object)>{};
+  void reportMismatch(bool isOverClaim, Object targetKey, List<DiagnosticsNode> parts) {
+    if (!reportedMismatches.add((isOverClaim, targetKey))) {
+      return;
+    }
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: FlutterError.fromParts(parts),
+        library: 'rendering library',
+        context: ErrorDescription('while checking hit-test regions'),
+      ),
+    );
+  }
+
+  // Over-claim check: each emitted proxy rect overlapping an earlier-or-same
+  // platform view must correspond to an opaque Flutter hit target painted above
+  // that platform view.
+  const sampleFractions = <(double, double)>[
+    (0.5, 0.5),
+    (0.25, 0.25),
+    (0.75, 0.25),
+    (0.25, 0.75),
+    (0.75, 0.75),
+  ];
+  for (var g = 0; g < groups.length; g++) {
+    final List<Rect> rects = groups[g].rects;
+    final List<RenderObject> groupClaimers = platformViews[g].claimers;
+    for (var r = 0; r < rects.length; r++) {
+      final Rect rect = rects[r];
+      final RenderObject claimer = groupClaimers[r];
+      for (var platformViewIndex = 0; platformViewIndex <= g; platformViewIndex++) {
+        final Rect platformViewRect = groups[platformViewIndex].platformViewRect;
+        if (!platformViewRect.isFinite ||
+            platformViewRect.isEmpty ||
+            !rect.overlaps(platformViewRect)) {
+          continue;
+        }
+        final Rect overlap = rect.intersect(platformViewRect);
+        if (!overlap.isFinite || overlap.isEmpty) {
+          continue;
+        }
+
+        Offset? exposedSample;
+        for (final (double fx, double fy) in sampleFractions) {
+          final candidate = Offset(
+            overlap.left + overlap.width * fx,
+            overlap.top + overlap.height * fy,
+          );
+          if (overlap.contains(candidate) && !isCoveredByLaterPlatformView(candidate, g)) {
+            exposedSample = candidate;
+            break;
+          }
+        }
+        if (exposedSample == null ||
+            hitOpaqueTargetAbovePlatformView(
+              exposedSample,
+              platformViewIndex: platformViewIndex,
+              maxBlockingPlatformViewIndex: g,
+            ).$1) {
+          continue;
+        }
+
+        // Fallback for rounded or shaped targets (for example, StadiumBorder
+        // buttons) that claim their rectangular bounding box when only a corner
+        // slice overlaps the platform view: sample the point in [overlap]
+        // closest to [rect.center] where the shape interior is most likely hit.
+        final double dxMargin = overlap.width < 1.0 ? overlap.width * 0.25 : 0.5;
+        final double dyMargin = overlap.height < 1.0 ? overlap.height * 0.25 : 0.5;
+        final nearClaimCenter = Offset(
+          clampDouble(rect.center.dx, overlap.left + dxMargin, overlap.right - dxMargin),
+          clampDouble(rect.center.dy, overlap.top + dyMargin, overlap.bottom - dyMargin),
+        );
+        if (nearClaimCenter != exposedSample &&
+            overlap.contains(nearClaimCenter) &&
+            !isCoveredByLaterPlatformView(nearClaimCenter, g) &&
+            hitOpaqueTargetAbovePlatformView(
+              nearClaimCenter,
+              platformViewIndex: platformViewIndex,
+              maxBlockingPlatformViewIndex: g,
+            ).$1) {
+          continue;
+        }
+
+        reportMismatch(true, claimer, <DiagnosticsNode>[
+          ErrorSummary('Hit-test region over-claim detected for ${describeIdentity(claimer)}.'),
+          ErrorDescription(
+            '${describeIdentity(claimer)} reported hit-test region $rect over platform view '
+            '${groups[platformViewIndex].viewId}, but hitTest at $exposedSample did not resolve '
+            'to an opaque target above that platform view.',
+          ),
+          ErrorHint(
+            'Ensure that ${claimer.runtimeType}.visitHitTestRegions only claims regions '
+            'where hitTest accepts pointer events.',
+          ),
+          claimer.describeForError('The render object that over-claimed a hit-test region was'),
+        ]);
+      }
+    }
+  }
+
+  // Under-claim check: sample an interior grid over each platform view's bounds
+  // and verify that any unclaimed point does not hit an opaque Flutter target
+  // painted above that platform view.
+  const gridDivisions = 16;
+  for (var platformViewIndex = 0; platformViewIndex < groups.length; platformViewIndex++) {
+    final Rect platformViewRect = groups[platformViewIndex].platformViewRect;
+    if (!platformViewRect.isFinite || platformViewRect.isEmpty) {
+      continue;
+    }
+    for (var gy = 0; gy < gridDivisions; gy++) {
+      final double y =
+          platformViewRect.top + platformViewRect.height * ((gy + 0.5) / gridDivisions);
+      for (var gx = 0; gx < gridDivisions; gx++) {
+        final sample = Offset(
+          platformViewRect.left + platformViewRect.width * ((gx + 0.5) / gridDivisions),
+          y,
+        );
+        if (!platformViewRect.contains(sample)) {
+          continue;
+        }
+
+        if (isCoveredByLaterPlatformView(sample, platformViewIndex) ||
+            isClaimedInOrAfterGroup(sample, platformViewIndex)) {
+          continue;
+        }
+
+        final (bool accepted, BoxHitTestResult result) = hitOpaqueTargetAbovePlatformView(
+          sample,
+          platformViewIndex: platformViewIndex,
+          maxBlockingPlatformViewIndex: groups.length - 1,
+        );
+        if (!accepted) {
+          continue;
+        }
+        final RenderObject hitObject = opaqueHitRenderObject(result) ?? root;
+        final Object? firstTarget = result.path.isNotEmpty ? result.path.first.target : null;
+        final Object topTarget = (firstTarget != null && firstTarget is! RenderObject)
+            ? firstTarget
+            : hitObject;
+        reportMismatch(false, topTarget, <DiagnosticsNode>[
+          ErrorSummary('Hit-test region under-claim detected for ${describeIdentity(topTarget)}.'),
+          ErrorDescription(
+            'Hit testing at $sample over platform view ${groups[platformViewIndex].viewId} '
+            'accepted pointer events at ${describeIdentity(topTarget)}'
+            '${identical(topTarget, hitObject) ? '' : ' (within ${describeIdentity(hitObject)})'}, '
+            'but no hit-test region covered that point.',
+          ),
+          ErrorHint(
+            'Ensure that ${hitObject.runtimeType} (or an ancestor) overrides '
+            'visitHitTestRegions to report the regions where its hitTest accepts pointer '
+            'events.',
+          ),
+          hitObject.describeForError('The render object that accepted the hit test was'),
+        ]);
+      }
+    }
+  }
 }

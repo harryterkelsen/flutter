@@ -78,9 +78,11 @@ class _PaintOrderFlowDelegate extends FlowDelegate {
 /// [regions] (in its local coordinates, which may extend beyond its own
 /// bounds), and reports exactly those regions as its hit-test regions.
 class _RegionHitTestBox extends RenderBox {
-  _RegionHitTestBox(this.regions);
+  _RegionHitTestBox(this.regions, {List<Rect>? claimedRegions})
+    : claimedRegions = claimedRegions ?? regions;
 
   final List<Rect> regions;
+  final List<Rect> claimedRegions;
 
   @override
   bool get sizedByParent => true;
@@ -103,7 +105,7 @@ class _RegionHitTestBox extends RenderBox {
 
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
-    regions.forEach(visitor);
+    claimedRegions.forEach(visitor);
   }
 }
 
@@ -219,14 +221,70 @@ void _expectSubtreeSkippedOnlyWithEarlyStop(
   }
 }
 
-/// A proxy box that reports [clipRect] as its approximate paint clip for [child].
+/// A proxy box that clips hit testing and reports [clipRect] as its
+/// approximate paint clip for [child].
 class _TestClipRectBox extends RenderProxyBox {
   _TestClipRectBox({required this.clipRect, RenderBox? child}) : super(child);
 
   final Rect clipRect;
 
   @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (!clipRect.contains(position)) {
+      return false;
+    }
+    return super.hitTest(result, position: position);
+  }
+
+  @override
   Rect? describeApproximatePaintClip(RenderObject child) => clipRect;
+}
+
+/// A box that overrides [hitTest] to accept pointer events everywhere within
+/// its bounds, while leaving [hitTestSelf] false and not overriding
+/// [visitHitTestRegions].
+class _UnclaimedOpaqueHitBox extends RenderBox {
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (size.contains(position)) {
+      result.add(BoxHitTestEntry(this, position));
+      return true;
+    }
+    return false;
+  }
+}
+
+/// A box whose [visitHitTestRegions] claims its full bounds even though its
+/// [hitTest] rejects pointer events everywhere.
+class _OverclaimingHitBox extends RenderBox {
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) => false;
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    visitor(Offset.zero & size);
+  }
+}
+
+/// An absorbing [RenderAbsorbPointer] (whose [hitTest] returns true without
+/// adding itself to `result.path`) that fails to report its hit-test region.
+class _UnclaimedAbsorbPointer extends RenderAbsorbPointer {
+  _UnclaimedAbsorbPointer({super.child});
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {}
 }
 
 RenderBox _positioned({
@@ -381,6 +439,7 @@ void main() {
     initialConfiguration = binding.renderView.configuration;
     binding.renderView.configuration = _viewConfiguration();
     debugEnableHitTestRegionsOnAllPlatforms = true;
+    debugCheckHitTestRegions = true;
     binding.automaticPointerInterceptorsEnabled = true;
   });
 
@@ -388,6 +447,7 @@ void main() {
     binding.skipSuperDrawFrame = false;
     binding.phase = EnginePhase.composite;
     binding.automaticPointerInterceptorsEnabled = false;
+    debugCheckHitTestRegions = false;
     debugEnableHitTestRegionsOnAllPlatforms = false;
     binding.renderView.configuration = initialConfiguration;
     // Detach this test's platform views from the root pipeline owner.
@@ -2762,6 +2822,248 @@ void main() {
         updates.last,
         equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
       );
+    });
+  });
+
+  group('debugCheckHitTestRegions', () {
+    List<FlutterErrorDetails> captureFrameErrors(VoidCallback runFrame) {
+      final errors = <FlutterErrorDetails>[];
+      final VoidCallback? previousOnErrors = binding.onErrors;
+      binding.onErrors = () {
+        errors.addAll(binding.takeAllFlutterErrorDetails());
+      };
+      try {
+        runFrame();
+      } finally {
+        binding.onErrors = previousOnErrors;
+      }
+      return errors;
+    }
+
+    test('debugAssertAllRenderVarsUnset throws when debugCheckHitTestRegions is left enabled', () {
+      debugEnableHitTestRegionsOnAllPlatforms = false;
+      expect(
+        () => debugAssertAllRenderVarsUnset(
+          'debugCheckHitTestRegions set',
+          debugCheckIntrinsicSizesOverride: debugCheckIntrinsicSizes,
+        ),
+        throwsFlutterError,
+      );
+
+      debugCheckHitTestRegions = false;
+      expect(
+        debugAssertAllRenderVarsUnset(
+          'all render vars unset',
+          debugCheckIntrinsicSizesOverride: debugCheckIntrinsicSizes,
+        ),
+        isTrue,
+      );
+    });
+
+    test('reports an under-claim once per frame naming the topmost hit entry, and reports nothing when disabled', () {
+      final unclaimedBox = _UnclaimedOpaqueHitBox();
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 200, 200), _platformView(1)),
+        _at(const Rect.fromLTWH(0, 0, 200, 200), RenderProxyBox(unclaimedBox)),
+      ]);
+
+      Float64List? payloadWithCheck;
+      final List<FlutterErrorDetails> firstFrameErrors = captureFrameErrors(() {
+        payloadWithCheck = regionsFor(root);
+      });
+      expect(payloadWithCheck, _payload(<(int, List<Rect>)>[(1, <Rect>[])]));
+      expect(firstFrameErrors, hasLength(1));
+      expect(firstFrameErrors.single.toString(), contains(describeIdentity(unclaimedBox)));
+
+      final List<FlutterErrorDetails> secondFrameErrors = captureFrameErrors(regionsAfterFrame);
+      expect(secondFrameErrors, hasLength(1));
+      expect(secondFrameErrors.single.toString(), contains(describeIdentity(unclaimedBox)));
+
+      debugCheckHitTestRegions = false;
+      Float64List? payloadWithoutCheck;
+      final List<FlutterErrorDetails> disabledErrors = captureFrameErrors(() {
+        payloadWithoutCheck = regionsAfterFrame();
+      });
+      expect(disabledErrors, isEmpty);
+      expect(payloadWithoutCheck, equals(payloadWithCheck));
+    });
+
+    test('reports an over-claim once per frame naming the claiming render object, and reports nothing when disabled', () {
+      const overclaimedRect = Rect.fromLTWH(20, 30, 100, 80);
+      final overclaimingBox = _OverclaimingHitBox();
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 300, 300), _platformView(1)),
+        _at(overclaimedRect, RenderProxyBox(overclaimingBox)),
+      ]);
+
+      Float64List? payloadWithCheck;
+      final List<FlutterErrorDetails> firstFrameErrors = captureFrameErrors(() {
+        payloadWithCheck = regionsFor(root);
+      });
+      expect(
+        payloadWithCheck,
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[overclaimedRect]),
+        ]),
+      );
+      expect(firstFrameErrors, hasLength(1));
+      expect(firstFrameErrors.single.toString(), contains(describeIdentity(overclaimingBox)));
+
+      final List<FlutterErrorDetails> secondFrameErrors = captureFrameErrors(regionsAfterFrame);
+      expect(secondFrameErrors, hasLength(1));
+      expect(secondFrameErrors.single.toString(), contains(describeIdentity(overclaimingBox)));
+
+      debugCheckHitTestRegions = false;
+      Float64List? payloadWithoutCheck;
+      final List<FlutterErrorDetails> disabledErrors = captureFrameErrors(() {
+        payloadWithoutCheck = regionsAfterFrame();
+      });
+      expect(disabledErrors, isEmpty);
+      expect(payloadWithoutCheck, equals(payloadWithCheck));
+    });
+
+    test('reports nothing for matching opaque, translucent and stacked platform view layouts across device pixel ratios', () {
+      binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 2.0);
+      const opaqueOverPv1 = Rect.fromLTWH(20, 30, 80, 60);
+      const translucentOverPv1 = Rect.fromLTWH(120, 30, 80, 60);
+      const pv2Rect = Rect.fromLTWH(220, 200, 150, 150);
+      const opaqueOverPv2 = Rect.fromLTWH(240, 220, 50, 40);
+
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        _at(opaqueOverPv1, _hitTarget()),
+        _at(translucentOverPv1, _hitTarget(behavior: HitTestBehavior.translucent)),
+        _at(pv2Rect, _platformView(2)),
+        _at(opaqueOverPv2, _hitTarget()),
+      ]);
+
+      Float64List? regions;
+      final List<FlutterErrorDetails> errors = captureFrameErrors(() {
+        regions = regionsFor(root);
+      });
+      expect(errors, isEmpty);
+      expect(
+        regions,
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[opaqueOverPv1]),
+          (2, <Rect>[opaqueOverPv2]),
+        ], scale: 2.0),
+      );
+    });
+
+    test('reports simultaneous over-claims and under-claims once per distinct render object per frame, including across intermediate and transparent platform views', () {
+      final overclaimingAboveBoth = _OverclaimingHitBox();
+      final unclaimedAboveBoth = _UnclaimedOpaqueHitBox();
+      final shiftedBox = _RegionHitTestBox(
+        const <Rect>[Rect.fromLTWH(60, 0, 60, 60)],
+        claimedRegions: const <Rect>[Rect.fromLTWH(0, 0, 60, 60)],
+      );
+      final transparentPv = PlatformViewRenderBox(
+        controller: FakePlatformViewController(3),
+        hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+        gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+      );
+      final overclaimingOverTransparentPv = _OverclaimingHitBox();
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 300, 300), _platformView(1)),
+        _at(const Rect.fromLTWH(40, 40, 120, 120), _platformView(2)),
+        _at(const Rect.fromLTWH(50, 50, 80, 80), overclaimingAboveBoth),
+        _at(const Rect.fromLTWH(130, 130, 80, 80), unclaimedAboveBoth),
+        _at(const Rect.fromLTWH(20, 220, 120, 60), shiftedBox),
+        _at(const Rect.fromLTWH(320, 0, 80, 80), transparentPv),
+        _at(const Rect.fromLTWH(330, 10, 60, 60), overclaimingOverTransparentPv),
+      ]);
+
+      final List<FlutterErrorDetails> errors = captureFrameErrors(() => regionsFor(root));
+      expect(
+        <String>[
+          for (final FlutterErrorDetails e in errors) e.exceptionAsString().split('\n').first,
+        ],
+        unorderedMatches(<Matcher>[
+          allOf(contains('over-claim'), contains(describeIdentity(overclaimingAboveBoth))),
+          allOf(contains('over-claim'), contains(describeIdentity(shiftedBox))),
+          allOf(contains('over-claim'), contains(describeIdentity(overclaimingOverTransparentPv))),
+          allOf(contains('under-claim'), contains(describeIdentity(unclaimedAboveBoth))),
+          allOf(contains('under-claim'), contains(describeIdentity(shiftedBox))),
+        ]),
+      );
+    });
+
+    test('does not false-positive when a group 1 barrier center is covered by a later platform view, and resumes reporting after toggling or reattaching', () {
+      const barrier = Rect.fromLTWH(0, 0, 300, 300);
+      final RenderBox pv1 = _at(barrier, _platformView(1));
+      final RenderBox barrierBox = _at(barrier, _hitTarget());
+      // Covers both (0.5, 0.5) = (150, 150) and (0.25, 0.25) = (75, 75) of barrier.
+      final RenderBox pv2 = _at(const Rect.fromLTWH(70, 70, 160, 160), _platformView(2));
+      final RenderStack root = _stack(<RenderBox>[pv1, barrierBox, pv2]);
+      expect(captureFrameErrors(() => regionsFor(root)), isEmpty);
+
+      final unclaimed = _UnclaimedOpaqueHitBox();
+      root
+        ..remove(pv1)
+        ..remove(barrierBox)
+        ..remove(pv2)
+        ..add(_at(const Rect.fromLTWH(10, 10, 80, 80), unclaimed));
+      expect(captureFrameErrors(regionsAfterFrame), isEmpty);
+
+      debugCheckHitTestRegions = false;
+      root.insert(_at(const Rect.fromLTWH(0, 0, 200, 200), _platformView(4)));
+      final Float64List? uncheckedPayload = regionsAfterFrame();
+      expect(uncheckedPayload, isNotNull);
+
+      debugCheckHitTestRegions = true;
+      Float64List? checkedPayload;
+      final List<FlutterErrorDetails> errors = captureFrameErrors(() {
+        checkedPayload = regionsAfterFrame();
+      });
+      expect(checkedPayload, equals(uncheckedPayload));
+      expect(errors, hasLength(1));
+      expect(errors.single.toString(), contains(describeIdentity(unclaimed)));
+    });
+
+    test('reports nothing for opaque ancestors and earlier absorbers under transparent or ignored platform views, while catching unclaimed absorbers painted above them', () {
+      PlatformViewRenderBox transparentPlatformView(int viewId) {
+        return PlatformViewRenderBox(
+          controller: FakePlatformViewController(viewId),
+          hitTestBehavior: PlatformViewHitTestBehavior.transparent,
+          gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{},
+        );
+      }
+
+      // 1. Opaque ancestor wrapping a transparent platform view (with an
+      // absorbing RenderAbsorbPointer painted *below* it) and an ignored
+      // platform view: neither the opaque ancestor nor the absorber below the
+      // platform view sits above a platform view, so zero errors are reported.
+      final RenderBox validRoot = RenderPointerListener(
+        behavior: HitTestBehavior.opaque,
+        child: _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 100, 100), RenderAbsorbPointer(child: _hitTarget())),
+          _at(const Rect.fromLTWH(0, 0, 200, 200), transparentPlatformView(1)),
+          _at(const Rect.fromLTWH(220, 0, 200, 200), RenderIgnorePointer(child: _platformView(2))),
+        ]),
+      );
+      Float64List? validPayload;
+      final List<FlutterErrorDetails> validErrors = captureFrameErrors(() {
+        validPayload = regionsFor(validRoot);
+      });
+      expect(validErrors, isEmpty);
+      expect(validPayload, _payload(<(int, List<Rect>)>[(1, <Rect>[]), (2, <Rect>[])]));
+
+      // 2. An unclaimed absorbing box painted *above* a transparent platform
+      // view inside an opaque ancestor still reports an under-claim.
+      final RenderStack innerStack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 200, 200), transparentPlatformView(3)),
+        _at(const Rect.fromLTWH(20, 20, 80, 80), _UnclaimedAbsorbPointer(child: _hitTarget())),
+      ]);
+      final RenderBox underclaimedRoot = RenderPointerListener(
+        behavior: HitTestBehavior.opaque,
+        child: innerStack,
+      );
+      final List<FlutterErrorDetails> underclaimErrors = captureFrameErrors(() {
+        regionsFor(underclaimedRoot);
+      });
+      expect(underclaimErrors, hasLength(1));
+      expect(underclaimErrors.single.toString(), contains(describeIdentity(innerStack)));
     });
   });
 }

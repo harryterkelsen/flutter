@@ -1723,4 +1723,15 @@ class _RenderInputPadding extends RenderShiftedBox {
       },
     );
   }
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    final RenderBox? child = this.child;
+    if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
+      return;
+    }
+    if (child.hitTest(BoxHitTestResult(), position: child.size.center(Offset.zero))) {
+      visitor(Offset.zero & size);
+    }
+  }
 }
