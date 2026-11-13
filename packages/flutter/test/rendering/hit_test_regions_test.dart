@@ -106,15 +106,23 @@ class _RegionHitTestBox extends RenderBox {
   }
 }
 
-/// A sliver that reports [regions] (in its local coordinates) as its
-/// hit-test regions.
-class _RegionSliver extends RenderSliverToBoxAdapter {
-  _RegionSliver(this.regions, {super.child});
+/// A sliver with a method shaped like [RenderBox.visitHitTestRegions] that
+/// reports [regions] (in its local coordinates) and records in [visited]
+/// whether it was called.
+///
+/// Slivers do not claim hit-test regions themselves, so this method must
+/// never be called.
+class _SliverWithRegionsMethod extends RenderSliverToBoxAdapter {
+  _SliverWithRegionsMethod(this.regions, {super.child});
 
   final List<Rect> regions;
+  bool visited = false;
 
-  @override
+  // This would override RenderObject.visitHitTestRegions if RenderObject
+  // declared it.
+  // ignore: annotate_overrides
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    visited = true;
     regions.forEach(visitor);
   }
 }
@@ -1687,9 +1695,17 @@ void main() {
     },
   );
 
-  test('visitHitTestRegions overrides on slivers are mapped through the viewport', () {
-    // Scrolled by 30, the second sliver starts at y = 100 - 30 = 70. Neither
-    // sliver's child accepts pointer events.
+  test('slivers are not asked for hit-test regions, but boxes inside them are', () {
+    // Scrolled by 30, the second sliver starts at y = 100 - 30 = 70. The first
+    // sliver's child does not accept pointer events; the second sliver's
+    // child is a 50 pixel tall hit target.
+    final sliver = _SliverWithRegionsMethod(
+      <Rect>[const Rect.fromLTRB(10, 5, 60, 25)],
+      child: RenderConstrainedBox(
+        additionalConstraints: const BoxConstraints.tightFor(height: 50),
+        child: _hitTarget(),
+      ),
+    );
     final viewport = RenderViewport(
       crossAxisDirection: AxisDirection.right,
       offset: ViewportOffset.fixed(30.0),
@@ -1699,12 +1715,7 @@ void main() {
             additionalConstraints: const BoxConstraints.tightFor(height: 100),
           ),
         ),
-        _RegionSliver(
-          <Rect>[const Rect.fromLTRB(10, 5, 60, 25)],
-          child: RenderConstrainedBox(
-            additionalConstraints: const BoxConstraints.tightFor(height: 100),
-          ),
-        ),
+        sliver,
       ],
     );
     final RenderStack stack = _stack(<RenderBox>[
@@ -1715,8 +1726,9 @@ void main() {
     expect(
       regionsFor(stack),
       _payload(<(int, List<Rect>)>[
-        (1, <Rect>[const Rect.fromLTRB(10, 75, 60, 95)]),
+        (1, <Rect>[const Rect.fromLTWH(0, 70, 400, 50)]),
       ]),
     );
+    expect(sliver.visited, isFalse);
   });
 }
