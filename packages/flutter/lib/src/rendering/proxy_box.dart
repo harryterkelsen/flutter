@@ -2717,6 +2717,8 @@ class RenderTransform extends RenderProxyBox {
 
   // [hitTest] does not check whether the position is within this box's size.
   @override
+  @internal
+  @protected
   bool get hitTestsChildrenOutsideBounds => true;
 
   @override
@@ -3106,6 +3108,8 @@ class RenderFractionalTranslation extends RenderProxyBox {
 
   // [hitTest] does not check whether the position is within this box's size.
   @override
+  @internal
+  @protected
   bool get hitTestsChildrenOutsideBounds => true;
 
   /// When set to true, hit tests are performed based on the position of the
@@ -3982,6 +3986,8 @@ class RenderAbsorbPointer extends RenderProxyBox {
   bool get hitTestsChildren => !absorbing;
 
   @override
+  @internal
+  @protected
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
     // While absorbing, every pointer event within this box's bounds is
     // swallowed, whether or not its child would accept it. (Its descendants
@@ -4601,6 +4607,8 @@ class RenderFollowerLayer extends RenderProxyBox {
 
   // [hitTest] does not check whether the position is within this box's size.
   @override
+  @internal
+  @protected
   bool get hitTestsChildrenOutsideBounds => true;
 
   // While unlinked with [showWhenUnlinked] false, the [FollowerLayer] does not
