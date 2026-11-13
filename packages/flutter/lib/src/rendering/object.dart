@@ -952,13 +952,16 @@ abstract class Constraints {
 typedef RenderObjectVisitor = void Function(RenderObject child);
 
 /// Signature for a function that is called with each rectangle in which a
-/// [RenderObject] accepts pointer events.
+/// [RenderBox] accepts pointer events.
 ///
-/// The `localRect` is in the coordinate space of the render object that
-/// reports it, and is clipped neither to that render object's bounds nor to any
+/// The `localRect` is in the coordinate space of the render box that reports
+/// it, and is clipped neither to that render box's bounds nor to any
 /// ancestor's clip.
 ///
-/// Used by [RenderObject.visitHitTestRegions].
+/// Used by [RenderBox.visitHitTestRegions]. Like that method, this typedef is
+/// internal to the Flutter framework while the experimental pass that uses it
+/// is experimental (see [RendererBinding.automaticPointerInterceptorsEnabled]).
+@internal
 typedef HitTestRegionVisitor = void Function(Rect localRect);
 
 /// Signature for a function that is called during layout.
@@ -2415,83 +2418,6 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     visitChildren(visitor);
   }
-
-  /// Calls [visitor] with each rectangle, in this render object's local
-  /// coordinate space, in which this render object itself accepts pointer
-  /// events.
-  ///
-  /// This is used to find the parts of the screen where Flutter content that
-  /// is painted on top of a platform view (see [PlatformViewRenderBox]) wants
-  /// pointer events, so that pointer events there can be routed to Flutter
-  /// rather than to the platform view. It is only consulted for render objects
-  /// painted after a platform view. It is not consulted for the descendants of
-  /// a render object whose [hitTestsChildren] is false (such as an ignoring
-  /// [RenderIgnorePointer] or an absorbing [RenderAbsorbPointer]), nor for
-  /// children that [visitChildrenInPaintOrder] skips (such as the child of an
-  /// offstage [RenderOffstage]). It is still consulted for a render object
-  /// whose [hitTestsChildren] is false.
-  ///
-  /// The rectangles passed to [visitor] are unclipped local rectangles: they do
-  /// not need to be clipped to this render object's bounds (they may extend
-  /// beyond them, if this render object accepts pointer events there), nor to
-  /// any clip applied by an ancestor. The caller maps each rectangle into the
-  /// coordinate space of the root of the walk (physical pixels for a
-  /// [RenderView]) using the ancestors' [applyPaintTransform], and clips it to the ancestors' paint clips and to
-  /// the bounds of each ancestor [RenderBox] whose
-  /// [RenderBox.hitTestsChildrenOutsideBounds] is false.
-  ///
-  /// Only report the rectangles in which this render object accepts pointer
-  /// events on its own behalf; regions claimed by its children are collected
-  /// by visiting the children. Rectangles may overlap, and may be larger than
-  /// the exact area in which this render object accepts pointer events (for
-  /// example, the bounding box of a circle), but a render object should not
-  /// report rectangles in which it never accepts pointer events, because
-  /// pointer events there would then not reach the platform view. For
-  /// example, a [RenderBox] whose [RenderBox.hitTest] checks its size should
-  /// not report rectangles outside of its bounds.
-  ///
-  /// The [visitor] must be called synchronously, and must not be retained
-  /// after this method returns.
-  ///
-  /// The default implementation reports nothing. [RenderBox] overrides it to
-  /// report its bounds if [RenderBox.hitTestSelf] returns true at the center
-  /// of its bounds. Override this method in render objects whose hit test (for
-  /// example a custom [RenderBox.hitTest] or [RenderBox.hitTestChildren])
-  /// accepts pointer events in a different area than that rule describes.
-  ///
-  /// {@tool snippet}
-  ///
-  /// A render box that only accepts pointer events within a 10 pixel radius of
-  /// its center can report just that circle's bounding box (within its
-  /// bounds, because [RenderBox.hitTest] rejects positions outside of them),
-  /// rather than its whole bounds:
-  ///
-  /// ```dart
-  /// class RenderDot extends RenderBox {
-  ///   // ...
-  ///
-  ///   @override
-  ///   bool hitTestSelf(Offset position) {
-  ///     return (position - size.center(Offset.zero)).distance <= 10.0;
-  ///   }
-  ///
-  ///   @override
-  ///   void visitHitTestRegions(HitTestRegionVisitor visitor) {
-  ///     final Rect dot = Rect.fromCircle(center: size.center(Offset.zero), radius: 10.0);
-  ///     visitor(dot.intersect(Offset.zero & size));
-  ///   }
-  /// }
-  /// ```
-  /// {@end-tool}
-  ///
-  /// See also:
-  ///
-  ///  * [visitChildrenInPaintOrder], which determines which render objects are
-  ///    painted on top of a platform view.
-  ///  * [describeApproximatePaintClip], which determines how the rectangles
-  ///    reported by descendants are clipped.
-  @protected
-  void visitHitTestRegions(HitTestRegionVisitor visitor) {}
 
   /// The object responsible for creating this render object.
   ///
