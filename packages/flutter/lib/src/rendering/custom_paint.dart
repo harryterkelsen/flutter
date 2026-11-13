@@ -567,6 +567,8 @@ class RenderCustomPaint extends RenderProxyBox {
   }
 
   @override
+  @internal
+  @protected
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
     // Pointer events are accepted where the foreground painter's hitTest
     // returns true (see hitTestChildren). Like the default rule, ask at the
