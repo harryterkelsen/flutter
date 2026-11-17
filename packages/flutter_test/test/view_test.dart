@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:collection/collection.dart';
@@ -312,6 +313,7 @@ void main() {
         physicalTouchSlop: 4,
         physicalDoubleTapSlop: 5,
       );
+      tester.view.updateHitTestRegions(Float64List.fromList(<double>[1, 1, 10, 20, 110, 70]));
 
       final faked = FlutterViewSnapshot(tester.view);
 
@@ -321,6 +323,7 @@ void main() {
 
       expect(initial, isNot(matchesSnapshot(faked)));
       expect(initial, matchesSnapshot(reset));
+      expect(tester.view.lastHitTestRegions, isNull);
     });
 
     testWidgets('render is passed through to backing FlutterView', (WidgetTester tester) async {
@@ -353,6 +356,24 @@ void main() {
 
       expect(backingView.lastSemanticsUpdate, isNotNull);
       expect(backingView.lastSemanticsUpdate, expectedUpdate);
+    });
+
+    testWidgets('updateHitTestRegions is passed through to backing FlutterView and recorded', (
+      WidgetTester tester,
+    ) async {
+      final expectedRegions = Float64List.fromList(<double>[1, 1, 10, 20, 110, 70]);
+      final backingView = _FakeFlutterView();
+      final view = TestFlutterView(
+        view: backingView,
+        platformDispatcher: tester.binding.platformDispatcher,
+        display: _FakeDisplay(),
+      );
+      expect(view.lastHitTestRegions, isNull);
+
+      view.updateHitTestRegions(expectedRegions);
+
+      expect(backingView.lastHitTestRegions, same(expectedRegions));
+      expect(view.lastHitTestRegions, same(expectedRegions));
     });
   });
 }
@@ -501,10 +522,16 @@ class FlutterViewSnapshot {
 class _FakeFlutterView extends Fake implements FlutterView {
   SemanticsUpdate? lastSemanticsUpdate;
   Scene? lastRenderedScene;
+  Float64List? lastHitTestRegions;
 
   @override
   void updateSemantics(SemanticsUpdate update) {
     lastSemanticsUpdate = update;
+  }
+
+  @override
+  void updateHitTestRegions(Float64List regions) {
+    lastHitTestRegions = regions;
   }
 
   @override
