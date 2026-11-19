@@ -110,7 +110,6 @@ class SizeRecordingViewRasterizer extends ViewRasterizer {
     FrameTimingRecorder? recorder,
   ) {
     rasterizeCount++;
-    recorder?.recordRasterStart();
     recorder?.recordRasterFinish();
     return Future<void>.value();
   }
@@ -306,7 +305,8 @@ void testMain() {
         frameBuilder.addPicture(ui.Offset.zero, frameRecorder.endRecording());
         final frameScene = frameBuilder.build() as LayerScene;
 
-        final frameTimingRecorder = FrameTimingRecorder();
+        // `Renderer.renderScene` records build finish before queuing `draw`.
+        final frameTimingRecorder = FrameTimingRecorder()..recordBuildFinish();
         await viewRasterizer.draw(frameScene.layerTree, physicalSize, frameTimingRecorder);
 
         final String outcome;
