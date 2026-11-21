@@ -115,6 +115,23 @@ void testMain() {
       // Skip on wasm since same() doesn't work for JSValues.
     }, skip: isWasm);
 
+    test('CkOnscreenSurface rejects empty sizes before its first resize', () async {
+      final surface = CkOnscreenSurface(OnscreenCanvasProvider());
+      addTearDown(surface.dispose);
+      await surface.initialized;
+      expect(surface.supportsWebGl, isTrue);
+
+      expectRejectsEmptySizes(surface);
+
+      surface.setSize(const BitmapSize(9, 19));
+      final canvas = surface.hostElement.children.single as DomHTMLCanvasElement;
+      expect(surface.supportsWebGl, isTrue);
+      expect(canvas.width, 9);
+      expect(canvas.height, 19);
+      expect(surface.skSurface!.width(), 9);
+      expect(surface.skSurface!.height(), 19);
+    });
+
     test('CkOnscreenSurface falls back to software rendering', () async {
       CkSurface.debugForceGLFailure = true;
       final surface = CkOnscreenSurface(OnscreenCanvasProvider());
@@ -475,6 +492,11 @@ void testMain() {
         surface.dispose();
         expect(surface.skSurface, isNull);
 
+        // Empty sizes are rejected even without a live SkSurface, and do not
+        // recreate one.
+        expect(() => surface.setSize(BitmapSize.zero), throwsA(isA<ArgumentError>()));
+        expect(surface.skSurface, isNull);
+
         // Verify CkOnscreenSurface behaves identically.
         final onscreenSurface = CkOnscreenSurface(OnscreenCanvasProvider());
         await onscreenSurface.initialized;
@@ -482,6 +504,11 @@ void testMain() {
         onscreenSurface.dispose();
         expect(onscreenSurface.skSurface, isNull);
         onscreenSurface.dispose();
+        expect(onscreenSurface.skSurface, isNull);
+        expect(
+          () => onscreenSurface.setSize(const BitmapSize(0, 500)),
+          throwsA(isA<ArgumentError>()),
+        );
         expect(onscreenSurface.skSurface, isNull);
       });
 
@@ -539,41 +566,38 @@ void testMain() {
           snapshot1.delete();
         }
 
-        // Zero dimension boundary: 0x0 is clamped to 1x1.
-        surface.setSize(BitmapSize.zero);
-        expect(
-          surface.supportsWebGl,
-          isTrue,
-          reason: 'Sizing to 0x0 must not poison the surface into software fallback',
-        );
-        final zeroSizedCanvas = surface.canvas as DomOffscreenCanvas;
-        expect(zeroSizedCanvas.width, 1);
-        expect(zeroSizedCanvas.height, 1);
-        final recorder0 = ui.PictureRecorder();
-        final canvas0 = ui.Canvas(recorder0);
-        final paint0 = ui.Paint()..color = const ui.Color(0xFF00FF00);
-        canvas0.drawRect(ui.Rect.zero, paint0);
-        final ui.Picture picture0 = recorder0.endRecording();
-        addTearDown(picture0.dispose);
-        await surface.rasterizeToCanvas(picture0);
-        expect(surface.skSurface, isNotNull);
-
-        final SkImage snapshot0 = surface.skSurface!.makeImageSnapshot()!;
-        try {
-          expect(snapshot0.width(), 1);
-          expect(snapshot0.height(), 1);
-        } finally {
-          snapshot0.delete();
-        }
+        // Empty and negative sizes are rejected before touching the canvas,
+        // the SkSurface, or the WebGL state.
+        surface.setSize(const BitmapSize(10, 10));
         expect(surface.supportsWebGl, isTrue);
+        final SkSurface? skSurfaceBefore = surface.skSurface;
+        expect(skSurfaceBefore, isNotNull);
 
-        // Negative dimensions are clamped per axis.
-        expect(() => surface.setSize(const BitmapSize(-5, 10)), returnsNormally);
+        expectRejectsEmptySizes(surface);
+
+        // Rejections leave the cached size intact, so re-requesting the
+        // current size is still a no-op.
+        surface.setSize(const BitmapSize(10, 10));
+        expect(identical(surface.skSurface, skSurfaceBefore), isTrue);
+
+        // The surface still rasterizes at its previous size.
+        final recorder10 = ui.PictureRecorder();
+        final canvas10 = ui.Canvas(recorder10);
+        final paint10 = ui.Paint()..color = const ui.Color(0xFF00FF00);
+        canvas10.drawRect(const ui.Rect.fromLTWH(0, 0, 10, 10), paint10);
+        final ui.Picture picture10 = recorder10.endRecording();
+        addTearDown(picture10.dispose);
+        await surface.rasterizeToCanvas(picture10);
         expect(surface.supportsWebGl, isTrue);
-        final negativeSizedCanvas = surface.canvas as DomOffscreenCanvas;
-        expect(negativeSizedCanvas.width, 1);
-        expect(negativeSizedCanvas.height, 10);
-
+        expect(surface.skSurface!.width(), 10);
+        expect(surface.skSurface!.height(), 10);
+        // A valid size after the rejections resizes normally.
+        surface.setSize(const BitmapSize(20, 30));
+        expect(surface.supportsWebGl, isTrue);
+        expect((surface.canvas as DomOffscreenCanvas).width, 20);
+        expect((surface.canvas as DomOffscreenCanvas).height, 30);
+        expect(surface.skSurface!.width(), 20);
+        expect(surface.skSurface!.height(), 30);
         surface.dispose();
       });
 
@@ -937,6 +961,43 @@ List<int> readBitmapPixel(DomImageBitmap bitmap, int x, int y) {
   final DomCanvasRenderingContext2D sampler = createDomCanvasElement(width: 1, height: 1).context2D;
   sampler.drawImage(bitmap, x, y, 1, 1, 0, 0, 1, 1);
   return sampler.getImageData(0, 0, 1, 1).data;
+}
+
+/// Expects every empty or negative size to be rejected by [surface] with an
+/// [ArgumentError], leaving its canvas, its Skia surface, and its WebGL
+/// rendering untouched.
+///
+/// [surface] must be rendering with WebGL.
+void expectRejectsEmptySizes(CkSurface surface) {
+  final DomEventTarget canvasBefore = surface.canvas;
+  final BitmapSize canvasSizeBefore = _canvasSizeOf(surface);
+  final SkSurface? skSurfaceBefore = surface.skSurface;
+  expect(skSurfaceBefore, isNotNull);
+
+  for (final emptySize in <BitmapSize>[
+    BitmapSize.zero,
+    const BitmapSize(0, 10),
+    const BitmapSize(10, 0),
+    const BitmapSize(-5, 10),
+  ]) {
+    expect(() => surface.setSize(emptySize), throwsA(isA<ArgumentError>()));
+    const reason = 'rejected sizes never reach the canvas or the GL context';
+    expect(surface.supportsWebGl, isTrue, reason: reason);
+    expect(identical(surface.canvas, canvasBefore), isTrue, reason: reason);
+    expect(_canvasSizeOf(surface), canvasSizeBefore, reason: reason);
+    expect(identical(surface.skSurface, skSurfaceBefore), isTrue, reason: reason);
+  }
+}
+
+/// The size of the drawing buffer backing [surface].
+BitmapSize _canvasSizeOf(CkSurface surface) {
+  final DomEventTarget canvas = surface.canvas;
+  if (surface is CkOnscreenSurface) {
+    final htmlCanvas = canvas as DomHTMLCanvasElement;
+    return BitmapSize(htmlCanvas.width!.toInt(), htmlCanvas.height!.toInt());
+  }
+  final offscreenCanvas = canvas as DomOffscreenCanvas;
+  return BitmapSize(offscreenCanvas.width!.toInt(), offscreenCanvas.height!.toInt());
 }
 
 /// An [OffscreenCanvasProvider] that allocates canvases of [allocatedSize]
