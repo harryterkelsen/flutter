@@ -958,10 +958,11 @@ typedef RenderObjectVisitor = void Function(RenderObject child);
 /// it, and is clipped neither to that render box's bounds nor to any
 /// ancestor's clip.
 ///
-/// Used by [RenderBox.visitHitTestRegions]. Like that method, this typedef is
-/// internal to the Flutter framework and may change while the hit-test region
-/// pass that uses it is experimental (see
-/// [RendererBinding.automaticPointerInterceptorsEnabled]).
+/// Used by [RenderBox.visitHitTestRegions], which is called by the
+/// experimental pass enabled by
+/// [RendererBinding.automaticPointerInterceptorsEnabled]. Like that method,
+/// this typedef is internal to the Flutter framework and is not part of its
+/// public API.
 @internal
 typedef HitTestRegionVisitor = void Function(Rect localRect);
 

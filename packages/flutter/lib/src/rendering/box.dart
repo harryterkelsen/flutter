@@ -3031,11 +3031,11 @@ abstract class RenderBox extends RenderObject {
   /// This getter is currently only read by the experimental pass that
   /// computes the hit-test regions of Flutter content painted on top of
   /// platform views (see [PlatformViewRenderBox]) on the web (see
-  /// [RendererBinding.automaticPointerInterceptorsEnabled]). Until that pass
-  /// is stable, this getter is internal to the Flutter framework and may
-  /// change: the analyzer reports `invalid_use_of_internal_member` when code
-  /// in other packages reads it or calls `super` on it (but not on a
-  /// declaration that overrides it).
+  /// [RendererBinding.automaticPointerInterceptorsEnabled]). This getter is
+  /// internal to the Flutter framework and is not part of its public API: the
+  /// analyzer reports `invalid_use_of_internal_member` when code in other
+  /// packages reads it or calls `super` on it (but not on a declaration that
+  /// overrides it).
   @internal
   @protected
   bool get hitTestsChildrenOutsideBounds => false;
@@ -3088,10 +3088,10 @@ abstract class RenderBox extends RenderObject {
   /// rule describes.
   ///
   /// This method is currently only called by the experimental pass described
-  /// above (see [RendererBinding.automaticPointerInterceptorsEnabled]). Until
-  /// that pass is stable, this method is internal to the Flutter framework and
-  /// may change: the analyzer reports `invalid_use_of_internal_member` when
-  /// code in other packages calls it, calls `super` on it, or names
+  /// above (see [RendererBinding.automaticPointerInterceptorsEnabled]). This
+  /// method is internal to the Flutter framework and is not part of its public
+  /// API: the analyzer reports `invalid_use_of_internal_member` when code in
+  /// other packages calls it, calls `super` on it, or names
   /// [HitTestRegionVisitor] (for example, as the parameter type of an
   /// override), but not on the overriding declaration itself.
   ///

@@ -254,9 +254,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
     // children (for example, an ignoring IgnorePointer or an absorbing
     // AbsorbPointer) may still claim its own bounds, but nothing in its
     // subtree does.
-    //
-    // hitTestsChildren is protected, but whether pointer events can reach a
-    // render object's children is exactly what this pass needs to know.
     final bool childrenCanClaim = canClaim && node.hitTestsChildren;
 
     // A platform view starts a new group. Everything visited after this point
@@ -282,9 +279,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
     // Only boxes claim regions; render objects that are not boxes (such as
     // slivers) are never asked, and the boxes inside them claim instead.
     if (groups.isNotEmpty && canClaim && node is RenderBox) {
-      // visitHitTestRegions is protected, but asking a render box where it
-      // accepts pointer events is exactly the question this pass needs
-      // answered, without running a full hit test.
       currentTransform = transform;
       currentHitTestClip = hitTestClip;
       node.visitHitTestRegions(claimRegion);
@@ -293,10 +287,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
     // A box whose hitTest rejects positions outside of its bounds before hit
     // testing its children restricts where its descendants can be hit, even
     // if it does not clip their painting.
-    //
-    // hitTestsChildrenOutsideBounds is protected, but whether a box's
-    // children can be hit outside of its bounds is exactly what this pass
-    // needs to know.
     //
     // The hit-test clip is only read when a region is claimed, so it is not
     // computed for subtrees in which nothing can claim.

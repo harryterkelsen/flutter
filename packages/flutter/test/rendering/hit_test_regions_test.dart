@@ -39,6 +39,26 @@ RenderBox _hitTarget({HitTestBehavior behavior = HitTestBehavior.opaque}) {
   return RenderPointerListener(behavior: behavior);
 }
 
+/// Where [_gateOverPlatformView] places the gate, in root coordinates.
+const Rect _gateRect = Rect.fromLTWH(20, 30, 200, 150);
+
+/// Where the hit target returned by [_gateChild] ends up when it is the gate's
+/// child, in root coordinates.
+const Rect _gateChildRect = Rect.fromLTWH(30, 45, 60, 40);
+
+/// A child for a gate that holds an opaque hit target at [_gateChildRect].
+RenderBox _gateChild() {
+  return _stack(<RenderBox>[_at(const Rect.fromLTWH(10, 15, 60, 40), _hitTarget())]);
+}
+
+/// A 400x400 platform view with id 1, covered by [gate] at [_gateRect].
+RenderStack _gateOverPlatformView(RenderBox gate) {
+  return _stack(<RenderBox>[
+    _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+    _at(_gateRect, gate),
+  ]);
+}
+
 /// Paints the children of a [RenderFlow] at [offsets], in [paintOrder].
 ///
 /// Children whose index is not in [paintOrder] are not painted at all, and
@@ -1008,19 +1028,12 @@ void main() {
     test(
       'an AbsorbPointer claims its own bounds, instead of its children, only while absorbing',
       () {
-        const absorberRect = Rect.fromLTWH(20, 30, 200, 150);
-        final absorber = RenderAbsorbPointer(
-          absorbing: false,
-          child: _stack(<RenderBox>[_at(const Rect.fromLTWH(10, 15, 60, 40), _hitTarget())]),
-        );
-        final RenderStack root = _stack(<RenderBox>[
-          _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
-          _at(absorberRect, absorber),
-        ]);
+        final absorber = RenderAbsorbPointer(absorbing: false, child: _gateChild());
+        final RenderStack root = _gateOverPlatformView(absorber);
         expect(
           regionsFor(root),
           _payload(<(int, List<Rect>)>[
-            (1, <Rect>[const Rect.fromLTWH(30, 45, 60, 40)]),
+            (1, <Rect>[_gateChildRect]),
           ]),
         );
 
@@ -1030,7 +1043,7 @@ void main() {
         expect(
           regionsAfterFrame(),
           _payload(<(int, List<Rect>)>[
-            (1, <Rect>[absorberRect]),
+            (1, <Rect>[_gateRect]),
           ]),
         );
       },
@@ -1038,39 +1051,29 @@ void main() {
 
     test('a mouse region claims its own bounds only while it is opaque and its behavior is '
         'opaque, but its children claim either way', () {
-      const regionRect = Rect.fromLTWH(20, 30, 200, 150);
-      const childRect = Rect.fromLTWH(30, 45, 60, 40);
-      final mouseRegion = RenderMouseRegion(
-        opaque: false,
-        child: _stack(<RenderBox>[_at(const Rect.fromLTWH(10, 15, 60, 40), _hitTarget())]),
-      );
-      final RenderStack root = _stack(<RenderBox>[
-        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
-        _at(regionRect, mouseRegion),
-      ]);
+      final mouseRegion = RenderMouseRegion(opaque: false, child: _gateChild());
+      final RenderStack root = _gateOverPlatformView(mouseRegion);
       // Applied in order to the same mouse region, one frame each, so each
       // row also checks that the pass sees the values set since the last one.
       final cases = <(bool opaque, HitTestBehavior behavior, List<Rect> claimed)>[
-        (false, HitTestBehavior.opaque, <Rect>[childRect]),
-        (true, HitTestBehavior.opaque, <Rect>[regionRect, childRect]),
-        (false, HitTestBehavior.opaque, <Rect>[childRect]),
-        (true, HitTestBehavior.translucent, <Rect>[childRect]),
-        (true, HitTestBehavior.deferToChild, <Rect>[childRect]),
-        (false, HitTestBehavior.translucent, <Rect>[childRect]),
-        (false, HitTestBehavior.deferToChild, <Rect>[childRect]),
-        (true, HitTestBehavior.opaque, <Rect>[regionRect, childRect]),
+        (false, HitTestBehavior.opaque, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.opaque, <Rect>[_gateRect, _gateChildRect]),
+        (false, HitTestBehavior.opaque, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.translucent, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.deferToChild, <Rect>[_gateChildRect]),
+        (false, HitTestBehavior.translucent, <Rect>[_gateChildRect]),
+        (false, HitTestBehavior.deferToChild, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.opaque, <Rect>[_gateRect, _gateChildRect]),
       ];
       final results = <String, Float64List?>{};
       final expected = <String, Float64List>{};
-      var first = true;
       for (final (bool opaque, HitTestBehavior behavior, List<Rect> claimed) in cases) {
         mouseRegion
           ..opaque = opaque
           ..hitTestBehavior = behavior;
         final description = '${results.length}: opaque: $opaque, $behavior';
-        results[description] = first ? regionsFor(root) : regionsAfterFrame();
+        results[description] = results.isEmpty ? regionsFor(root) : regionsAfterFrame();
         expected[description] = _payload(<(int, List<Rect>)>[(1, claimed)]);
-        first = false;
       }
       expect(results, expected);
     });
