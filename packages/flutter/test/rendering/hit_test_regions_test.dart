@@ -1036,6 +1036,45 @@ void main() {
       },
     );
 
+    test('a mouse region claims its own bounds only while it is opaque and its behavior is '
+        'opaque, but its children claim either way', () {
+      const regionRect = Rect.fromLTWH(20, 30, 200, 150);
+      const childRect = Rect.fromLTWH(30, 45, 60, 40);
+      final mouseRegion = RenderMouseRegion(
+        opaque: false,
+        child: _stack(<RenderBox>[_at(const Rect.fromLTWH(10, 15, 60, 40), _hitTarget())]),
+      );
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        _at(regionRect, mouseRegion),
+      ]);
+      // Applied in order to the same mouse region, one frame each, so each
+      // row also checks that the pass sees the values set since the last one.
+      final cases = <(bool opaque, HitTestBehavior behavior, List<Rect> claimed)>[
+        (false, HitTestBehavior.opaque, <Rect>[childRect]),
+        (true, HitTestBehavior.opaque, <Rect>[regionRect, childRect]),
+        (false, HitTestBehavior.opaque, <Rect>[childRect]),
+        (true, HitTestBehavior.translucent, <Rect>[childRect]),
+        (true, HitTestBehavior.deferToChild, <Rect>[childRect]),
+        (false, HitTestBehavior.translucent, <Rect>[childRect]),
+        (false, HitTestBehavior.deferToChild, <Rect>[childRect]),
+        (true, HitTestBehavior.opaque, <Rect>[regionRect, childRect]),
+      ];
+      final results = <String, Float64List?>{};
+      final expected = <String, Float64List>{};
+      var first = true;
+      for (final (bool opaque, HitTestBehavior behavior, List<Rect> claimed) in cases) {
+        mouseRegion
+          ..opaque = opaque
+          ..hitTestBehavior = behavior;
+        final description = '${results.length}: opaque: $opaque, $behavior';
+        results[description] = first ? regionsFor(root) : regionsAfterFrame();
+        expected[description] = _payload(<(int, List<Rect>)>[(1, claimed)]);
+        first = false;
+      }
+      expect(results, expected);
+    });
+
     test('a platform view inside an ignoring IgnorePointer still starts a group', () {
       // The browser still sends it pointer events, so content painted over it
       // must claim them.
