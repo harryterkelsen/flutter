@@ -102,7 +102,9 @@ Widget _buildApp(Widget home) => _app(home);
 void configureTestView(WidgetTester tester) {
   tester.view.physicalSize = const Size(800, 600);
   tester.view.devicePixelRatio = 1.0;
+  debugCheckHitTestRegions = true;
   addTearDown(() {
+    debugCheckHitTestRegions = false;
     debugEnableHitTestRegionsOnAllPlatforms = false;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
     tester.view.reset();
@@ -161,11 +163,13 @@ void main() {
   // are unset before tearDown callbacks run.
   void enablePass(WidgetTester tester) {
     debugEnableHitTestRegionsOnAllPlatforms = true;
+    debugCheckHitTestRegions = true;
     RendererBinding.instance.automaticPointerInterceptorsEnabled = true;
     tester.view.devicePixelRatio = _devicePixelRatio;
     tester.view.physicalSize = const Size(800, 600) * _devicePixelRatio;
     addTearDown(() {
       RendererBinding.instance.automaticPointerInterceptorsEnabled = false;
+      debugCheckHitTestRegions = false;
       debugEnableHitTestRegionsOnAllPlatforms = false;
       tester.view.reset();
     });
@@ -230,12 +234,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // PV1's group has exactly the claims painted between PV1 and PV2,
-    // including the barrier; PV2's group has only what is painted after PV2.
+    // PV1's group receives the barrier rect, which subsumes homeButton and
+    // dialogHeader; PV2's group has only what is painted after PV2.
     final Map<int, Set<Rect>> regions = _lastRegions();
     expect(regions.keys, <int>[1, 2]);
     expect(regions, <int, Set<Rect>>{
-      1: <Rect>{homeButton, barrier, dialogHeader},
+      1: <Rect>{barrier},
       2: <Rect>{dialogButton},
     });
 

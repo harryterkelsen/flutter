@@ -966,6 +966,77 @@ class _RenderInputPadding extends RenderShiftedBox {
       },
     );
   }
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // Mirrors [hitTest], like the other `_RenderInputPadding` copies in
+    // button.dart, button_style_button.dart, and toggle_buttons.dart.
+    // Positions within `max(child.size, minSize)` that miss the child are
+    // redirected to just before or just after the child's center along the
+    // orientation's axis, so each half claims its region only if the child
+    // accepts the redirected position for it. [hitTest] compares the position
+    // against the child-local center, so the halves split there too. Claims
+    // are limited to `Offset.zero & size`, since ancestors never hit test
+    // positions outside it.
+    final RenderBox? child = this.child;
+    if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
+      return;
+    }
+    final Rect bounds = (Offset.zero & size).intersect(
+      Rect.fromLTWH(
+        0,
+        0,
+        math.max(child.size.width, minSize.width),
+        math.max(child.size.height, minSize.height),
+      ),
+    );
+    if (bounds.isEmpty) {
+      return;
+    }
+    final Offset center = child.size.center(Offset.zero);
+    final Offset step = switch (orientation) {
+      Orientation.portrait => const Offset(0, 1),
+      Orientation.landscape => const Offset(1, 0),
+    };
+    final bool hitsBefore = child.hitTest(BoxHitTestResult(), position: center - step);
+    final bool hitsAfter = child.hitTest(BoxHitTestResult(), position: center + step);
+    if (hitsBefore && hitsAfter) {
+      visitor(bounds);
+      return;
+    }
+    if (!hitsBefore && !hitsAfter) {
+      return;
+    }
+    final Rect half = switch (orientation) {
+      Orientation.portrait when hitsBefore => Rect.fromLTRB(
+        bounds.left,
+        bounds.top,
+        bounds.right,
+        clampDouble(center.dy, bounds.top, bounds.bottom),
+      ),
+      Orientation.portrait => Rect.fromLTRB(
+        bounds.left,
+        clampDouble(center.dy, bounds.top, bounds.bottom),
+        bounds.right,
+        bounds.bottom,
+      ),
+      Orientation.landscape when hitsBefore => Rect.fromLTRB(
+        bounds.left,
+        bounds.top,
+        clampDouble(center.dx, bounds.left, bounds.right),
+        bounds.bottom,
+      ),
+      Orientation.landscape => Rect.fromLTRB(
+        clampDouble(center.dx, bounds.left, bounds.right),
+        bounds.top,
+        bounds.right,
+        bounds.bottom,
+      ),
+    };
+    if (!half.isEmpty) {
+      visitor(half);
+    }
+  }
 }
 
 class _TappableLabel {
