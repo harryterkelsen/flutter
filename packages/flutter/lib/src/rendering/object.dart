@@ -951,6 +951,20 @@ abstract class Constraints {
 /// Used by [RenderObject.visitChildren] and [RenderObject.visitChildrenForSemantics].
 typedef RenderObjectVisitor = void Function(RenderObject child);
 
+/// Signature for a function that is called with each rectangle in which a
+/// [RenderBox] accepts pointer events.
+///
+/// The `localRect` is in the coordinate space of the render box that reports
+/// it, and is clipped neither to that render box's bounds nor to any
+/// ancestor's clip.
+///
+/// Used by [RenderBox.visitHitTestRegions]. Like that method, this typedef is
+/// internal to the Flutter framework and may change while the hit-test region
+/// pass that uses it is experimental (see
+/// [RendererBinding.automaticPointerInterceptorsEnabled]).
+@internal
+typedef HitTestRegionVisitor = void Function(Rect localRect);
+
 /// Signature for a function that is called during layout.
 ///
 /// Used by [RenderObject.invokeLayoutCallback].
