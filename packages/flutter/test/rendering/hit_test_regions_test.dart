@@ -889,6 +889,54 @@ void main() {
       expect(visited, painted);
     });
 
+    test('a RenderSliverCrossAxisGroup walks only its visible slivers, first to last', () {
+      RenderSliver sliver(double height, RenderBox child) {
+        return RenderSliverToBoxAdapter(
+          child: RenderConstrainedBox(
+            additionalConstraints: BoxConstraints.tightFor(height: height),
+            child: child,
+          ),
+        );
+      }
+
+      // Side by side: platform view 1 in the left half (scroll offsets 0 to
+      // 200) and an opaque hit target in the right half (0 to 500), both over
+      // platform view 0.
+      final viewport = RenderViewport(
+        crossAxisDirection: AxisDirection.right,
+        offset: ViewportOffset.fixed(300),
+        children: <RenderSliver>[
+          RenderSliverCrossAxisGroup()
+            ..addAll(<RenderSliver>[sliver(200, _platformView(1)), sliver(500, _hitTarget())]),
+        ],
+      );
+      final RenderStack root = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 800, 600), _platformView(0)),
+        _at(const Rect.fromLTWH(0, 0, 800, 600), viewport),
+      ]);
+
+      // Scrolled past the first sliver, which is laid out but not visible, so
+      // the group does not paint it: platform view 1 starts no group and the
+      // hit target's claim stays with platform view 0.
+      expect(
+        regionsFor(root),
+        _payload(<(int, List<Rect>)>[
+          (0, <Rect>[const Rect.fromLTRB(400, 0, 800, 200)]),
+        ]),
+      );
+
+      // Scrolled back, the group paints platform view 1 before the hit target,
+      // so the hit target's claim is attributed to platform view 1.
+      viewport.offset = ViewportOffset.zero();
+      expect(
+        regionsAfterFrame(),
+        _payload(<(int, List<Rect>)>[
+          (0, <Rect>[]),
+          (1, <Rect>[const Rect.fromLTRB(400, 0, 800, 500)]),
+        ]),
+      );
+    });
+
     test(
       'an AbsorbPointer claims its own bounds, instead of its children, only while absorbing',
       () {
