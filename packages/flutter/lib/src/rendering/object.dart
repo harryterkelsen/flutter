@@ -8,10 +8,12 @@
 /// @docImport 'package:flutter/widgets.dart' as widgets;
 ///
 /// @docImport 'box.dart';
+/// @docImport 'flow.dart';
 /// @docImport 'paragraph.dart';
 /// @docImport 'platform_view.dart';
 /// @docImport 'proxy_box.dart';
 /// @docImport 'sliver.dart';
+/// @docImport 'stack.dart';
 /// @docImport 'view.dart';
 /// @docImport 'viewport.dart';
 library;
@@ -1075,7 +1077,7 @@ base class PipelineOwner with DiagnosticableTreeMixin {
   /// platform views attached to this pipeline owner.
   ///
   /// Typical implementations forward the regions to
-  /// [FlutterView.updateHitTestRegions].
+  /// `FlutterView.updateHitTestRegions`.
   ///
   /// While a platform view with a non-empty size is attached, this is called on
   /// every [flushHitTestRegions] with the latest payload (even if it is
@@ -2370,6 +2372,39 @@ abstract class RenderObject with DiagnosticableTreeMixin implements HitTestTarge
   ///
   /// Override in subclasses with children and call the visitor for each child.
   void visitChildren(RenderObjectVisitor visitor) {}
+
+  /// Calls visitor for each immediate child of this render object that is
+  /// painted, in the order in which [paint] paints them.
+  ///
+  /// The first child visited is painted first (and so is at the bottom), and
+  /// the last child visited is painted last (and so is on top). Children that
+  /// [paint] does not paint, for example the hidden children of a
+  /// [RenderIndexedStack], the child of an offstage [RenderOffstage], the
+  /// offstage entries of an [Overlay], or children that are laid out but
+  /// scrolled out of view, must be skipped. Children that are skipped only
+  /// because they are fully transparent, but that can still be hit, may be
+  /// visited (as [RenderFlow] does).
+  ///
+  /// On the web, this method is used by the experimental pass that computes
+  /// the hit-test regions of Flutter content painted on top of platform views
+  /// (see [PlatformViewRenderBox]), so that pointer events over that content
+  /// can be routed to Flutter rather than to the platform view (see
+  /// [RendererBinding.automaticPointerInterceptorsEnabled]).
+  ///
+  /// The default implementation calls [visitChildren], which is correct for
+  /// render objects that paint all of their children in child order. Render
+  /// objects whose [paint] order differs from their child order, or that do not
+  /// paint all of their children, should override this method to match their
+  /// [paint] implementation.
+  ///
+  /// See also:
+  ///
+  ///  * [visitChildrenForSemantics], which similarly visits a subset of the
+  ///    children: those that are semantically relevant.
+  @internal
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    visitChildren(visitor);
+  }
 
   /// The object responsible for creating this render object.
   ///

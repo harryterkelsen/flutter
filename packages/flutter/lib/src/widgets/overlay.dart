@@ -1172,6 +1172,15 @@ mixin _RenderTheaterMixin on RenderBox {
       context.paintChild(child, childParentData.offset + offset);
     }
   }
+
+  // Mirrors [paint]. For a theater, this skips the offstage children and
+  // includes the children of OverlayPortals right after the onstage child they
+  // are painted on top of.
+  @internal
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    _childrenInPaintOrder().forEach(visitor);
+  }
 }
 
 class _TheaterParentData extends StackParentData {
