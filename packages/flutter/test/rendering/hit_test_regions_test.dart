@@ -39,6 +39,24 @@ RenderBox _hitTarget({HitTestBehavior behavior = HitTestBehavior.opaque}) {
   return RenderPointerListener(behavior: behavior);
 }
 
+/// A sliver that is [height] long on the main axis and shows [child].
+RenderSliver _sliver(double height, RenderBox child) {
+  return RenderSliverToBoxAdapter(
+    child: RenderConstrainedBox(
+      additionalConstraints: BoxConstraints.tightFor(height: height),
+      child: child,
+    ),
+  );
+}
+
+/// [viewport] filling the screen over platform view 0, which also fills it.
+RenderStack _overPlatformView0(RenderViewport viewport) {
+  return _stack(<RenderBox>[
+    _at(const Rect.fromLTWH(0, 0, 800, 600), _platformView(0)),
+    _at(const Rect.fromLTWH(0, 0, 800, 600), viewport),
+  ]);
+}
+
 /// Paints the children of a [RenderFlow] at [offsets], in [paintOrder].
 ///
 /// Children whose index is not in [paintOrder] are not painted at all, and
@@ -874,6 +892,18 @@ void main() {
           RenderFollowerLayer(link: LayerLink(), child: box()),
           true,
         ),
+        // A sliver inserted since the last layout has no geometry yet and is
+        // not painted until it is laid out.
+        (
+          'RenderSliverCrossAxisGroup with a never laid out sliver',
+          RenderSliverCrossAxisGroup()..add(RenderSliverToBoxAdapter()),
+          false,
+        ),
+        (
+          'RenderSliverMainAxisGroup with a never laid out sliver',
+          RenderSliverMainAxisGroup()..add(RenderSliverToBoxAdapter()),
+          false,
+        ),
       ];
       final visited = <String, List<RenderObject>>{};
       final painted = <String, List<RenderObject>>{};
@@ -890,15 +920,6 @@ void main() {
     });
 
     test('a RenderSliverCrossAxisGroup walks only its visible slivers, first to last', () {
-      RenderSliver sliver(double height, RenderBox child) {
-        return RenderSliverToBoxAdapter(
-          child: RenderConstrainedBox(
-            additionalConstraints: BoxConstraints.tightFor(height: height),
-            child: child,
-          ),
-        );
-      }
-
       // Side by side: platform view 1 in the left half (scroll offsets 0 to
       // 200) and an opaque hit target in the right half (0 to 500), both over
       // platform view 0.
@@ -907,13 +928,10 @@ void main() {
         offset: ViewportOffset.fixed(300),
         children: <RenderSliver>[
           RenderSliverCrossAxisGroup()
-            ..addAll(<RenderSliver>[sliver(200, _platformView(1)), sliver(500, _hitTarget())]),
+            ..addAll(<RenderSliver>[_sliver(200, _platformView(1)), _sliver(500, _hitTarget())]),
         ],
       );
-      final RenderStack root = _stack(<RenderBox>[
-        _at(const Rect.fromLTWH(0, 0, 800, 600), _platformView(0)),
-        _at(const Rect.fromLTWH(0, 0, 800, 600), viewport),
-      ]);
+      final RenderStack root = _overPlatformView0(viewport);
 
       // Scrolled past the first sliver, which is laid out but not visible, so
       // the group does not paint it: platform view 1 starts no group and the
@@ -933,6 +951,81 @@ void main() {
         _payload(<(int, List<Rect>)>[
           (0, <Rect>[]),
           (1, <Rect>[const Rect.fromLTRB(400, 0, 800, 500)]),
+        ]),
+      );
+    });
+
+    test('a RenderSliverCrossAxisGroup in a RenderSliverMainAxisGroup is painted under the '
+        'slivers before it, and walks only its visible slivers', () {
+      // A 100 tall header, then the platform view 1 sliver (scroll offsets 100
+      // to 300) beside an opaque hit target (100 to 600).
+      final viewport = RenderViewport(
+        crossAxisDirection: AxisDirection.right,
+        offset: ViewportOffset.zero(),
+        children: <RenderSliver>[
+          RenderSliverMainAxisGroup()..addAll(<RenderSliver>[
+            _sliver(100, _hitTarget()),
+            RenderSliverCrossAxisGroup()
+              ..addAll(<RenderSliver>[_sliver(200, _platformView(1)), _sliver(500, _hitTarget())]),
+          ]),
+        ],
+      );
+      final RenderStack root = _overPlatformView0(viewport);
+
+      // The main-axis group paints its last sliver first, so the header is
+      // painted over platform view 1 and the hit target beside it.
+      expect(
+        regionsFor(root),
+        _payload(<(int, List<Rect>)>[
+          (0, <Rect>[]),
+          (1, <Rect>[const Rect.fromLTRB(400, 100, 800, 600), const Rect.fromLTRB(0, 0, 800, 100)]),
+        ]),
+      );
+
+      // Scrolled past the header and the platform view 1 sliver, only the hit
+      // target is painted, over platform view 0.
+      viewport.offset = ViewportOffset.fixed(350);
+      expect(
+        regionsAfterFrame(),
+        _payload(<(int, List<Rect>)>[
+          (0, <Rect>[const Rect.fromLTRB(400, 0, 800, 250)]),
+        ]),
+      );
+    });
+
+    test('a platform view in a RenderSliverCrossAxisGroup under an ignoring '
+        'RenderSliverIgnorePointer still starts a group', () {
+      final ignorePointer = RenderSliverIgnorePointer(
+        sliver: RenderSliverCrossAxisGroup()
+          ..addAll(<RenderSliver>[_sliver(200, _platformView(1)), _sliver(500, _hitTarget())]),
+      );
+      final viewport = RenderViewport(
+        crossAxisDirection: AxisDirection.right,
+        offset: ViewportOffset.zero(),
+        children: <RenderSliver>[_sliver(100, _hitTarget()), ignorePointer],
+      );
+      final RenderStack root = _overPlatformView0(viewport);
+
+      // The ignored hit target beside platform view 1 claims nothing, but the
+      // header before the group, which the viewport paints after it, is
+      // painted over platform view 1.
+      const header = Rect.fromLTRB(0, 0, 800, 100);
+      expect(
+        regionsFor(root),
+        _payload(<(int, List<Rect>)>[
+          (0, <Rect>[]),
+          (1, <Rect>[header]),
+        ]),
+      );
+
+      // Toggling ignoring marks nothing as needing layout or paint; the next
+      // frame's pass still sees the new value.
+      ignorePointer.ignoring = false;
+      expect(
+        regionsAfterFrame(),
+        _payload(<(int, List<Rect>)>[
+          (0, <Rect>[]),
+          (1, <Rect>[const Rect.fromLTRB(400, 100, 800, 600), header]),
         ]),
       );
     });
