@@ -246,6 +246,16 @@ Float64List _payload(List<(int, List<Rect>)> groups, {double scale = 1.0}) {
   ]);
 }
 
+/// Matches the [_payload] for [groups] and [scale], allowing each value to
+/// differ by floating-point rounding.
+Matcher _payloadCloseTo(List<(int, List<Rect>)> groups, {double scale = 1.0}) {
+  return pairwiseCompare<double, double>(
+    _payload(groups, scale: scale),
+    (double expected, double actual) => (expected - actual).abs() < 1e-9,
+    'within 1e-9 of',
+  );
+}
+
 /// A proxy box whose [hitTestsChildren] is read from [childrenHitTestable],
 /// so pointer events reach its child only while that is true.
 ///
@@ -1032,13 +1042,6 @@ void main() {
       binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 2.0);
       // Every rect below is in logical pixels; the root view scales it by the
       // device pixel ratio of 2.
-      Matcher payloadCloseTo(List<(int, List<Rect>)> groups) {
-        return pairwiseCompare<double, double>(
-          _payload(groups, scale: 2.0),
-          (double expected, double actual) => (expected - actual).abs() < 1e-9,
-          'within 1e-9 of',
-        );
-      }
 
       // Nested translations: (30, 40) + (10, 20) + (5, 5).
       const translatedClaim = Rect.fromLTWH(45, 65, 100, 50);
@@ -1111,9 +1114,9 @@ void main() {
             ),
           ]),
         ),
-        payloadCloseTo(<(int, List<Rect>)>[
+        _payloadCloseTo(<(int, List<Rect>)>[
           (1, <Rect>[translatedClaim, mirroredClaim, rotatedClaim, perspectiveClaim]),
-        ]),
+        ], scale: 2.0),
       );
 
       // A platform view mirrored vertically about its center still covers its
@@ -1141,10 +1144,133 @@ void main() {
             ),
           ]),
         ),
-        payloadCloseTo(<(int, List<Rect>)>[
+        _payloadCloseTo(<(int, List<Rect>)>[
           (2, <Rect>[claimOverMirroredPv]),
-        ]),
+        ], scale: 2.0),
       );
+    });
+
+    test('claims map to their exact bounds under chains of mirrors and non-uniform scales', () {
+      binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 2.0);
+      final mirrorX = Matrix4.diagonal3Values(-1, 1, 1);
+      final mirrorY = Matrix4.diagonal3Values(1, -1, 1);
+      final mirrorXY = Matrix4.diagonal3Values(-1, -1, 1);
+      // Each case wraps a hit target filling the 40x20 slot at (100, 100) in
+      // the given transforms, outermost first, each about its alignment (or
+      // about the slot's origin when null). Expected rects are in logical
+      // pixels.
+      final cases = <(String, List<(Matrix4, Alignment?)>, Rect)>[
+        (
+          'non-uniform positive scale',
+          <(Matrix4, Alignment?)>[(Matrix4.diagonal3Values(3, 0.5, 1), null)],
+          const Rect.fromLTRB(100, 100, 220, 110),
+        ),
+        (
+          'mirror then non-uniform scale',
+          <(Matrix4, Alignment?)>[
+            (mirrorX, Alignment.center),
+            (Matrix4.diagonal3Values(0.5, 2, 1), null),
+          ],
+          const Rect.fromLTRB(120, 100, 140, 140),
+        ),
+        (
+          'non-uniform scale then mirror',
+          <(Matrix4, Alignment?)>[
+            (Matrix4.diagonal3Values(2, 0.5, 1), null),
+            (mirrorY, Alignment.center),
+          ],
+          const Rect.fromLTRB(100, 100, 180, 110),
+        ),
+        (
+          'mirror about the center then about the origin',
+          <(Matrix4, Alignment?)>[(mirrorX, Alignment.center), (mirrorX, null)],
+          const Rect.fromLTRB(140, 100, 180, 120),
+        ),
+        (
+          'mirror on one axis then the other',
+          <(Matrix4, Alignment?)>[(mirrorX, Alignment.center), (mirrorY, null)],
+          const Rect.fromLTRB(100, 80, 140, 100),
+        ),
+        (
+          'mirror on both axes twice',
+          <(Matrix4, Alignment?)>[(mirrorXY, Alignment.center), (mirrorXY, null)],
+          const Rect.fromLTRB(140, 120, 180, 140),
+        ),
+      ];
+
+      for (final (String description, List<(Matrix4, Alignment?)> chain, Rect expected) in cases) {
+        RenderBox claim = _hitTarget();
+        for (final (Matrix4 transform, Alignment? alignment) in chain.reversed) {
+          claim = RenderTransform(transform: transform, alignment: alignment, child: claim);
+        }
+        expect(
+          regionsFor(
+            _stack(<RenderBox>[
+              _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+              _at(const Rect.fromLTWH(100, 100, 40, 20), claim),
+            ]),
+          ),
+          _payload(<(int, List<Rect>)>[
+            (1, <Rect>[expected]),
+          ], scale: 2.0),
+          reason: description,
+        );
+      }
+    });
+
+    test('subtrees whose x and y scales multiply to zero or infinity claim nothing, while '
+        'extreme scales with a finite non-zero product still claim', () {
+      binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 2.0);
+      Matrix4 scale(double x, double y) => Matrix4.diagonal3Values(x, y, 1);
+      // Each case wraps a hit target filling the 20x20 slot at the origin (so
+      // that even tiny scaled bounds are not absorbed by a translation) in the
+      // given scales, outermost first. Every scale is finite and positive, but
+      // together with the device pixel ratio of 2 the product of the x and y
+      // scales can underflow to zero or overflow to infinity, which makes the
+      // transform singular or non-finite. Expected rects are in logical pixels.
+      final cases = <(String, List<Matrix4>, List<Rect>)>[
+        ('product underflows', <Matrix4>[scale(1e-200, 1e-200)], <Rect>[]),
+        (
+          'product underflows across nested scales',
+          <Matrix4>[scale(1e-160, 1e-160), scale(1e-160, 1e-160)],
+          <Rect>[],
+        ),
+        ('product overflows', <Matrix4>[scale(1e300, 1e10)], <Rect>[]),
+        (
+          'product overflows across nested scales',
+          <Matrix4>[scale(1e200, 1), scale(1, 1e200)],
+          <Rect>[],
+        ),
+        (
+          'tiny product',
+          <Matrix4>[scale(1e-150, 1e-150)],
+          <Rect>[const Rect.fromLTRB(0, 0, 20 * 1e-150, 20 * 1e-150)],
+        ),
+        (
+          'huge and tiny scales',
+          <Matrix4>[scale(1e300, 1e-300)],
+          // Clipped on the right to the 800x600 stack, which hit tests within
+          // its bounds.
+          <Rect>[const Rect.fromLTRB(0, 0, 800, 20 * 1e-300)],
+        ),
+      ];
+
+      for (final (String description, List<Matrix4> scales, List<Rect> expectedRects) in cases) {
+        RenderBox claim = _hitTarget();
+        for (final Matrix4 transform in scales.reversed) {
+          claim = RenderTransform(transform: transform, child: claim);
+        }
+        expect(
+          regionsFor(
+            _stack(<RenderBox>[
+              _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+              _at(const Rect.fromLTWH(0, 0, 20, 20), claim),
+            ]),
+          ),
+          _payload(<(int, List<Rect>)>[(1, expectedRects)], scale: 2.0),
+          reason: description,
+        );
+      }
     });
   });
 
@@ -2409,6 +2535,158 @@ void main() {
         );
         expect(withEarlyStop, equals(withoutEarlyStop));
       }
+    });
+
+    test('under a fractional device pixel ratio, a scaled claim covering a mirrored platform view '
+        'stops the walk early and matches enableEarlyStop: false', () {
+      binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 1.1);
+      final coveredInGroup1 = _CountingHitTestBox();
+      final visitedInGroup2 = _CountingHitTestBox();
+
+      final Float64List? withEarlyStop = regionsFor(
+        _stack(<RenderBox>[
+          // Mirrored about its center, so it covers its own slot.
+          _at(
+            const Rect.fromLTWH(100, 100, 200, 100),
+            RenderTransform(
+              transform: Matrix4.diagonal3Values(-1, 1, 1),
+              alignment: Alignment.center,
+              child: _platformView(1),
+            ),
+          ),
+          // Scaled by 2 from (50, 50) to (50, 50, 350, 250), covering PV1.
+          _at(
+            const Rect.fromLTWH(50, 50, 150, 100),
+            RenderTransform(transform: Matrix4.diagonal3Values(2, 2, 1), child: _hitTarget()),
+          ),
+          // Mirrored about its center, inside the covering claim.
+          _at(
+            const Rect.fromLTWH(120, 120, 20, 20),
+            RenderTransform(
+              transform: Matrix4.diagonal3Values(1, -1, 1),
+              alignment: Alignment.center,
+              child: coveredInGroup1,
+            ),
+          ),
+          // Scaled by 0.5 about its center to (425, 125, 475, 175).
+          _at(
+            const Rect.fromLTWH(400, 100, 100, 100),
+            RenderTransform(
+              transform: Matrix4.diagonal3Values(0.5, 0.5, 1),
+              alignment: Alignment.center,
+              child: _platformView(2),
+            ),
+          ),
+          // Mirrored about its center and then about its origin, which moves it
+          // right by its width to (420, 90, 460, 130), partially covering PV2.
+          _at(
+            const Rect.fromLTWH(380, 90, 40, 40),
+            RenderTransform(
+              transform: Matrix4.diagonal3Values(-1, 1, 1),
+              alignment: Alignment.center,
+              child: RenderTransform(
+                transform: Matrix4.diagonal3Values(-1, 1, 1),
+                child: _hitTarget(),
+              ),
+            ),
+          ),
+          _at(const Rect.fromLTWH(430, 130, 10, 10), visitedInGroup2),
+        ]),
+      );
+      expect(
+        withEarlyStop,
+        _payloadCloseTo(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(50, 50, 350, 250)]),
+          (
+            2,
+            <Rect>[const Rect.fromLTRB(420, 90, 460, 130), const Rect.fromLTRB(430, 130, 440, 140)],
+          ),
+        ], scale: 1.1),
+      );
+
+      coveredInGroup1.visitCount = 0;
+      visitedInGroup2.visitCount = 0;
+      expect(computeHitTestRegions(binding.renderView), equals(withEarlyStop));
+      expect(coveredInGroup1.visitCount, 0);
+      expect(visitedInGroup2.visitCount, 1);
+      expect(
+        computeHitTestRegions(binding.renderView, enableEarlyStop: false),
+        equals(withEarlyStop),
+      );
+      expect(coveredInGroup1.visitCount, 1);
+    });
+
+    test('clip-miss pruning and containment deduplication compare transformed bounds, not local '
+        'bounds', () {
+      binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 2.0);
+      final insideShrunkClip = _CountingHitTestBox();
+      final insideGrownClip = _CountingHitTestBox();
+
+      expect(
+        regionsFor(
+          _stack(<RenderBox>[
+            _at(const Rect.fromLTWH(150, 150, 100, 100), _platformView(1)),
+            // A 200x200 clip that would overlap PV1 unscaled, but is scaled by
+            // 0.5 to (0, 0, 100, 100), missing it.
+            _at(
+              const Rect.fromLTWH(0, 0, 200, 200),
+              RenderTransform(
+                transform: Matrix4.diagonal3Values(0.5, 0.5, 1),
+                child: RenderClipRect(child: insideShrunkClip),
+              ),
+            ),
+            // A 100x100 clip that would miss PV1 unscaled, but is scaled by 2
+            // to (0, 0, 200, 200), overlapping it.
+            _at(
+              const Rect.fromLTWH(0, 0, 100, 100),
+              RenderTransform(
+                transform: Matrix4.diagonal3Values(2, 2, 1),
+                child: RenderClipRect(child: insideGrownClip),
+              ),
+            ),
+          ]),
+        ),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(0, 0, 200, 200)]),
+        ], scale: 2.0),
+      );
+      insideShrunkClip.visitCount = 0;
+      insideGrownClip.visitCount = 0;
+      computeHitTestRegions(binding.renderView);
+      expect(insideShrunkClip.visitCount, 0);
+      expect(insideGrownClip.visitCount, 1);
+
+      // Each claim's local bounds are the other way around from its
+      // transformed bounds: the 180x180 box scaled by 0.5 is contained in the
+      // 100x100 box after it, which is contained in the 60x60 box scaled by 2
+      // after it, which contains the 200x200 box scaled by 0.5 after it.
+      expect(
+        regionsFor(
+          _stack(<RenderBox>[
+            _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+            _at(
+              const Rect.fromLTWH(20, 20, 180, 180),
+              RenderTransform(transform: Matrix4.diagonal3Values(0.5, 0.5, 1), child: _hitTarget()),
+            ),
+            _at(const Rect.fromLTWH(10, 10, 100, 100), _hitTarget()),
+            _at(
+              const Rect.fromLTWH(0, 0, 60, 60),
+              RenderTransform(transform: Matrix4.diagonal3Values(2, 2, 1), child: _hitTarget()),
+            ),
+            _at(
+              const Rect.fromLTWH(5, 5, 200, 200),
+              RenderTransform(transform: Matrix4.diagonal3Values(0.5, 0.5, 1), child: _hitTarget()),
+            ),
+            _at(
+              const Rect.fromLTWH(200, 200, 20, 40),
+              RenderTransform(transform: Matrix4.diagonal3Values(2, 0.5, 1), child: _hitTarget()),
+            ),
+          ]),
+        ),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(0, 0, 120, 120), const Rect.fromLTRB(200, 200, 240, 220)]),
+        ], scale: 2.0),
+      );
     });
 
     test(
