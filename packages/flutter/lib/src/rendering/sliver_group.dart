@@ -153,8 +153,9 @@ class RenderSliverCrossAxisGroup extends RenderSliver
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     RenderSliver? child = firstChild;
     while (child != null) {
-      // Unlike [paint], this can run before a newly inserted child has been
-      // laid out (for example, in a test frame that stops before layout).
+      // Unlike [paint], this can be called on a child that has not been laid
+      // out yet (for example, one inserted since the last layout), which has
+      // no geometry.
       if (child.geometry?.visible ?? false) {
         visitor(child);
       }
@@ -458,8 +459,9 @@ class RenderSliverMainAxisGroup extends RenderSliver
   void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
     RenderSliver? child = lastChild;
     while (child != null) {
-      // Unlike [paint], this can run before a newly inserted child has been
-      // laid out (for example, in a test frame that stops before layout).
+      // Unlike [paint], this can be called on a child that has not been laid
+      // out yet (for example, one inserted since the last layout), which has
+      // no geometry.
       if (child.geometry?.visible ?? false) {
         visitor(child);
       }

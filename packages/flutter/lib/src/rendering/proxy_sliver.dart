@@ -258,6 +258,8 @@ class RenderSliverIgnorePointer extends RenderProxySliver {
   }
 
   @override
+  @internal
+  @protected
   bool get hitTestsChildren => !ignoring;
 
   @override

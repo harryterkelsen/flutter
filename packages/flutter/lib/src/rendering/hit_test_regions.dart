@@ -66,8 +66,9 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   the children they do not paint (for example, the child of an offstage
 ///   [RenderOffstage] or [RenderSliverOffstage], the child of an unlinked
 ///   [RenderFollowerLayer] whose [RenderFollowerLayer.showWhenUnlinked] is
-///   false, the hidden children of a [RenderIndexedStack], or children kept
-///   alive while scrolled out of view).
+///   false, the hidden children of a [RenderIndexedStack], the slivers of a
+///   sliver group that are not visible, or children kept alive while scrolled
+///   out of view).
 /// * Each child's transform is computed with [RenderObject.applyPaintTransform]
 ///   and each child's clip with [RenderObject.describeApproximatePaintClip]
 ///   (except for the children of a [RenderViewportBase], which are clipped to
