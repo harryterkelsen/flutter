@@ -587,39 +587,37 @@ mixin RendererBinding
   /// Whether the framework automatically computes the hit-test regions of
   /// Flutter content painted over platform views and sends them to the engine.
   ///
-  /// Defaults to true.
-  ///
-  /// This flag is experimental. It is initialized to true on every platform,
-  /// but automatic pointer interception is only active on the web (or on other
-  /// platforms when [debugEnableHitTestRegionsOnAllPlatforms] is enabled in
-  /// tests).
+  /// Defaults to true on every platform, but automatic pointer interception is
+  /// only active on the web (or on other platforms when
+  /// [debugEnableHitTestRegionsOnAllPlatforms] is enabled in tests). This flag
+  /// is experimental.
   ///
   /// When enabled on the web and a platform view is attached, the framework
   /// computes, after each frame, the regions where Flutter content that accepts
   /// pointer events paints over a platform view, and sends them to the web
-  /// engine. The engine covers those regions with invisible hit-test proxies,
-  /// so that pointer events over Flutter content such as dialogs, menus, and
-  /// modal barriers reach Flutter instead of the platform view beneath them,
-  /// without wrapping that content in a pointer interceptor widget.
+  /// engine whenever they change. The engine covers those regions with
+  /// invisible hit-test proxies, so that pointer events over Flutter content
+  /// such as dialogs, menus, and modal barriers reach Flutter instead of the
+  /// platform view beneath them, without wrapping that content in a pointer
+  /// interceptor widget.
   ///
-  /// Targets that use [HitTestBehavior.translucent] intentionally do not claim
-  /// regions over platform views, so they never block the platform view beneath
-  /// them. To make an invisible area over a platform view receive pointer
-  /// events, use [HitTestBehavior.opaque] instead.
+  /// A target that uses [HitTestBehavior.translucent] intentionally does not
+  /// claim a region over a platform view itself, although its descendants that
+  /// accept pointer events still do. To make an invisible area over a platform
+  /// view receive pointer events, use [HitTestBehavior.opaque] instead.
   ///
   /// On the web, setting this to false at runtime opts out: any hit-test
-  /// regions previously sent to the engine are cleared and a frame is
-  /// scheduled, so the engine removes its hit-test proxies. Setting it back to
-  /// true schedules a frame so that the regions are recomputed and sent again.
+  /// regions previously sent to the engine are cleared, so the engine removes
+  /// its hit-test proxies, and a frame is scheduled. Setting it back to true
+  /// schedules a frame so that the regions are recomputed and sent again.
   /// Assigning the current value is a no-op and schedules no frame.
   ///
   /// While a drag is in progress, pointer capture keeps it active when the
-  /// pointer moves over a platform view such as an iframe. The semantics host
-  /// (`<flt-semantics-host>`) is deliberately excluded from pointer capture so
-  /// that the engine's `ClickDebouncer` can still dispatch screen reader
-  /// clicks. As a result, when accessibility semantics are enabled, a drag that
-  /// starts on a semantics node pauses while the pointer is over an iframe
-  /// platform view.
+  /// pointer moves over a platform view such as an iframe. The DOM host of the
+  /// semantics tree is deliberately excluded from pointer capture so that
+  /// screen reader clicks are still delivered. As a result, when accessibility
+  /// semantics are enabled, a drag that starts on a semantics node pauses while
+  /// the pointer is over an iframe platform view.
   bool get automaticPointerInterceptorsEnabled => _automaticPointerInterceptorsEnabled;
   set automaticPointerInterceptorsEnabled(bool value) {
     if (_automaticPointerInterceptorsEnabled == value) {

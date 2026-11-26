@@ -233,8 +233,8 @@ void main() {
   tearDown(() {
     binding.automaticPointerInterceptorsEnabled = initialAutomaticPointerInterceptorsEnabled;
     debugEnableHitTestRegionsOnAllPlatforms = false;
-    // Restoring the default no longer clears regions left by a test that ended
-    // opted in, so drop them explicitly before the next test.
+    // Restoring the default (true) does not clear regions left by a test, so
+    // drop them explicitly before the next test.
     binding.rootPipelineOwner.clearHitTestRegions();
     binding.renderView.configuration = initialConfiguration;
     // Detach this test's platform views from the root pipeline owner.
