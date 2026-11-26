@@ -39,6 +39,26 @@ RenderBox _hitTarget({HitTestBehavior behavior = HitTestBehavior.opaque}) {
   return RenderPointerListener(behavior: behavior);
 }
 
+/// Where [_gateOverPlatformView] places the gate, in root coordinates.
+const Rect _gateRect = Rect.fromLTWH(20, 30, 200, 150);
+
+/// Where the hit target returned by [_gateChild] ends up when it is the gate's
+/// child, in root coordinates.
+const Rect _gateChildRect = Rect.fromLTWH(30, 45, 60, 40);
+
+/// A child for a gate that holds an opaque hit target at [_gateChildRect].
+RenderBox _gateChild() {
+  return _stack(<RenderBox>[_at(const Rect.fromLTWH(10, 15, 60, 40), _hitTarget())]);
+}
+
+/// A 400x400 platform view with id 1, covered by [gate] at [_gateRect].
+RenderStack _gateOverPlatformView(RenderBox gate) {
+  return _stack(<RenderBox>[
+    _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+    _at(_gateRect, gate),
+  ]);
+}
+
 /// Paints the children of a [RenderFlow] at [offsets], in [paintOrder].
 ///
 /// Children whose index is not in [paintOrder] are not painted at all, and
@@ -71,6 +91,94 @@ class _PaintOrderFlowDelegate extends FlowDelegate {
 
   @override
   bool shouldRepaint(_PaintOrderFlowDelegate oldDelegate) => true;
+}
+
+/// A box with custom hit testing that accepts pointer events only within
+/// [regions] (in its local coordinates, which may extend beyond its own
+/// bounds), and reports exactly those regions as its hit-test regions.
+class _RegionHitTestBox extends RenderBox {
+  _RegionHitTestBox(this.regions);
+
+  final List<Rect> regions;
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (regions.any((Rect region) => region.contains(position))) {
+      result.add(BoxHitTestEntry(this, position));
+      return true;
+    }
+    return false;
+  }
+
+  // Under the generic rule this box would claim its whole bounds.
+  @override
+  bool hitTestSelf(Offset position) => true;
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    regions.forEach(visitor);
+  }
+}
+
+/// A sliver with a method shaped like [RenderBox.visitHitTestRegions] that
+/// reports [regions] (in its local coordinates) and records in [visited]
+/// whether it was called.
+///
+/// Slivers do not claim hit-test regions themselves, so this method must
+/// never be called.
+class _SliverWithRegionsMethod extends RenderSliverToBoxAdapter {
+  _SliverWithRegionsMethod(this.regions, {super.child});
+
+  final List<Rect> regions;
+  bool visited = false;
+
+  // RenderObject does not declare visitHitTestRegions, so this overrides
+  // nothing. If it is ever declared there again, the ignore keeps this test
+  // compiling so that it fails if the walk asks slivers for regions.
+  // ignore: annotate_overrides
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    visited = true;
+    regions.forEach(visitor);
+  }
+}
+
+/// A box that fills its (tight) constraints and accepts pointer events only
+/// at exactly [point] (in its local coordinates).
+class _PointHitTestBox extends RenderBox {
+  _PointHitTestBox(this.point);
+
+  final Offset point;
+
+  @override
+  bool get sizedByParent => true;
+
+  @override
+  Size computeDryLayout(BoxConstraints constraints) => constraints.biggest;
+
+  @override
+  bool hitTestSelf(Offset position) => position == point;
+}
+
+/// A painter that paints nothing and is hit only at exactly [point].
+class _PointHitTestPainter extends CustomPainter {
+  const _PointHitTestPainter(this.point);
+
+  final Offset point;
+
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  @override
+  bool hitTest(Offset position) => position == point;
+
+  @override
+  bool shouldRepaint(_PointHitTestPainter oldDelegate) => point != oldDelegate.point;
 }
 
 /// The payload expected for [groups], given in paint order as
@@ -109,6 +217,34 @@ class _RenderChildHitTestGate extends RenderProxyBoxWithHitTestBehavior {
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
     return childrenHitTestable && super.hitTestChildren(result, position: position);
+  }
+}
+
+/// A proxy box that, like [RenderTransform], forwards pointer events to its
+/// child without checking its own bounds while [outsideBounds] is true, and
+/// says so through [hitTestsChildrenOutsideBounds].
+///
+/// It is not a render object type the framework knows about, so the
+/// hit-test region pass can only learn whether its children can be hit
+/// outside its bounds through [hitTestsChildrenOutsideBounds].
+class _RenderHitTestOutsideBoundsGate extends RenderProxyBox {
+  _RenderHitTestOutsideBoundsGate({required this.outsideBounds, RenderBox? child}) : super(child);
+
+  bool outsideBounds;
+
+  @override
+  bool get hitTestsChildrenOutsideBounds => outsideBounds;
+
+  @override
+  bool hitTest(BoxHitTestResult result, {required Offset position}) {
+    if (!outsideBounds && !size.contains(position)) {
+      return false;
+    }
+    if (hitTestChildren(result, position: position)) {
+      result.add(BoxHitTestEntry(this, position));
+      return true;
+    }
+    return false;
   }
 }
 
@@ -892,19 +1028,12 @@ void main() {
     test(
       'an AbsorbPointer claims its own bounds, instead of its children, only while absorbing',
       () {
-        const absorberRect = Rect.fromLTWH(20, 30, 200, 150);
-        final absorber = RenderAbsorbPointer(
-          absorbing: false,
-          child: _stack(<RenderBox>[_at(const Rect.fromLTWH(10, 15, 60, 40), _hitTarget())]),
-        );
-        final RenderStack root = _stack(<RenderBox>[
-          _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
-          _at(absorberRect, absorber),
-        ]);
+        final absorber = RenderAbsorbPointer(absorbing: false, child: _gateChild());
+        final RenderStack root = _gateOverPlatformView(absorber);
         expect(
           regionsFor(root),
           _payload(<(int, List<Rect>)>[
-            (1, <Rect>[const Rect.fromLTWH(30, 45, 60, 40)]),
+            (1, <Rect>[_gateChildRect]),
           ]),
         );
 
@@ -914,11 +1043,78 @@ void main() {
         expect(
           regionsAfterFrame(),
           _payload(<(int, List<Rect>)>[
-            (1, <Rect>[absorberRect]),
+            (1, <Rect>[_gateRect]),
           ]),
         );
       },
     );
+
+    test('a mouse region claims its own bounds only while it is opaque and its behavior is '
+        'opaque, but its children claim either way', () {
+      final mouseRegion = RenderMouseRegion(opaque: false, child: _gateChild());
+      final RenderStack root = _gateOverPlatformView(mouseRegion);
+      // Applied in order to the same mouse region, one frame each, so each
+      // row also checks that the pass sees the values set since the last one.
+      final cases = <(bool opaque, HitTestBehavior behavior, List<Rect> claimed)>[
+        (false, HitTestBehavior.opaque, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.opaque, <Rect>[_gateRect, _gateChildRect]),
+        (false, HitTestBehavior.opaque, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.translucent, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.deferToChild, <Rect>[_gateChildRect]),
+        (false, HitTestBehavior.translucent, <Rect>[_gateChildRect]),
+        (false, HitTestBehavior.deferToChild, <Rect>[_gateChildRect]),
+        (true, HitTestBehavior.opaque, <Rect>[_gateRect, _gateChildRect]),
+      ];
+      final results = <String, Float64List?>{};
+      final expected = <String, Float64List>{};
+      for (final (bool opaque, HitTestBehavior behavior, List<Rect> claimed) in cases) {
+        mouseRegion
+          ..opaque = opaque
+          ..hitTestBehavior = behavior;
+        final description = '${results.length}: opaque: $opaque, $behavior';
+        results[description] = results.isEmpty ? regionsFor(root) : regionsAfterFrame();
+        expected[description] = _payload(<(int, List<Rect>)>[(1, claimed)]);
+      }
+      expect(results, expected);
+    });
+
+    test('whether a mouse region claims depends only on its own opaque, not on enclosing '
+        'mouse regions, and platform views inside one that is not opaque still start groups', () {
+      const innerOpaqueRegion = Rect.fromLTWH(30, 30, 50, 50);
+      const overPv2 = Rect.fromLTWH(130, 130, 40, 40);
+      const outerOpaqueRegion = Rect.fromLTWH(300, 300, 80, 80);
+      final Float64List? regions = regionsFor(
+        _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+          _at(
+            const Rect.fromLTWH(20, 20, 300, 300),
+            RenderMouseRegion(
+              opaque: false,
+              child: _stack(<RenderBox>[
+                _at(const Rect.fromLTWH(10, 10, 50, 50), RenderMouseRegion()),
+                _at(const Rect.fromLTWH(100, 100, 150, 150), _platformView(2)),
+                _at(const Rect.fromLTWH(110, 110, 40, 40), _hitTarget()),
+              ]),
+            ),
+          ),
+          _at(
+            outerOpaqueRegion,
+            RenderMouseRegion(
+              child: _stack(<RenderBox>[
+                _at(const Rect.fromLTWH(10, 10, 20, 20), RenderMouseRegion(opaque: false)),
+              ]),
+            ),
+          ),
+        ]),
+      );
+      expect(
+        regions,
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[innerOpaqueRegion]),
+          (2, <Rect>[overPv2, outerOpaqueRegion]),
+        ]),
+      );
+    });
 
     test('a platform view inside an ignoring IgnorePointer still starts a group', () {
       // The browser still sends it pointer events, so content painted over it
@@ -1263,6 +1459,424 @@ void main() {
       regionsFor(_stack(<RenderBox>[_at(const Rect.fromLTWH(0, 0, 400, 400), flow)])),
       _payload(<(int, List<Rect>)>[
         (1, <Rect>[const Rect.fromLTWH(30, 40, 100, 50)]),
+      ]),
+    );
+  });
+
+  test('visitHitTestRegions overrides report unclipped local rects instead of their bounds', () {
+    binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 2.0);
+
+    final RenderStack stack = _stack(<RenderBox>[
+      _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+      // Clips at x = 215 (logical), and maps the box's local point (x, y) to
+      // (20 + 2x, 10 + 2y) (logical).
+      _at(
+        const Rect.fromLTWH(0, 0, 215, 400),
+        RenderClipRect(
+          child: RenderTransform(
+            transform: Matrix4.translationValues(20.0, 10.0, 0.0)
+              ..multiply(Matrix4.diagonal3Values(2.0, 2.0, 1.0)),
+            child: _RegionHitTestBox(<Rect>[
+              // Inside the box's bounds.
+              const Rect.fromLTRB(5, 5, 15, 15),
+              // Crosses the ancestor clip.
+              const Rect.fromLTRB(90, 40, 110, 50),
+              // Extends above and to the left of the box's own bounds.
+              const Rect.fromLTRB(-5, -5, 5, 5),
+            ]),
+          ),
+        ),
+      ),
+      // Accepts pointer events nowhere, even though hitTestSelf is true.
+      _at(const Rect.fromLTWH(300, 0, 50, 50), _RegionHitTestBox(<Rect>[])),
+    ]);
+
+    // Each local rect is transformed to logical (20 + 2l, 10 + 2t, 20 + 2r,
+    // 10 + 2b), clipped at x = 215, and scaled by the device pixel ratio of 2.
+    expect(
+      regionsFor(stack),
+      _payload(<(int, List<Rect>)>[
+        (
+          1,
+          <Rect>[
+            const Rect.fromLTRB(30, 20, 50, 40),
+            const Rect.fromLTRB(200, 90, 215, 110),
+            const Rect.fromLTRB(10, 0, 30, 20),
+          ],
+        ),
+      ], scale: 2.0),
+    );
+  });
+
+  test(
+    'children overflowing a box claim outside it only if its hitTestsChildrenOutsideBounds is true',
+    () {
+      // Each box is laid out at (100, 100, 150, 150) over a platform view, and
+      // paints a hit target that extends beyond the bottom right of the box.
+      // Where the box hit tests only within its bounds, the target can only be
+      // hit, and so only claims, within (100, 100, 150, 150).
+      const boxRect = Rect.fromLTWH(100, 100, 50, 50);
+      // Outside the box, but inside every row's painted hit target.
+      const outside = Offset(160, 160);
+      // A hit target filling its parent, painted (and hit tested) shifted by
+      // half its size, at (125, 125, 175, 175) when its parent is at boxRect.
+      RenderBox shiftedHitTarget() =>
+          RenderFractionalTranslation(translation: const Offset(0.5, 0.5), child: _hitTarget());
+      bool hitsTargetAt(RenderBox root, Offset position) {
+        final result = BoxHitTestResult();
+        root.hitTest(result, position: position);
+        return result.path.any((HitTestEntry entry) => entry.target is RenderPointerListener);
+      }
+
+      final cases = <({String description, RenderBox Function() box, Rect expectedRect})>[
+        // An unclipped stack whose child paints at (125, 125, 175, 175).
+        (
+          description: 'RenderStack',
+          box: () => RenderStack(
+            textDirection: TextDirection.ltr,
+            clipBehavior: Clip.none,
+            children: <RenderBox>[_at(const Rect.fromLTWH(25, 25, 50, 50), _hitTarget())],
+          ),
+          expectedRect: const Rect.fromLTRB(125, 125, 150, 150),
+        ),
+        // A centered 100x100 child, painted at (75, 75, 175, 175).
+        (
+          description: 'RenderConstrainedOverflowBox',
+          box: () => RenderConstrainedOverflowBox(
+            minWidth: 100,
+            maxWidth: 100,
+            minHeight: 100,
+            maxHeight: 100,
+            child: _hitTarget(),
+          ),
+          expectedRect: boxRect,
+        ),
+        // A SizedBox.
+        (
+          description: 'RenderConstrainedBox',
+          box: () => RenderConstrainedBox(
+            additionalConstraints: BoxConstraints.tight(boxRect.size),
+            child: shiftedHitTarget(),
+          ),
+          expectedRect: const Rect.fromLTRB(125, 125, 150, 150),
+        ),
+        // A Transform.translate, whose child paints at (125, 125, 175, 175).
+        (
+          description: 'RenderTransform',
+          box: () => RenderTransform(
+            transform: Matrix4.translationValues(25.0, 25.0, 0.0),
+            child: _hitTarget(),
+          ),
+          expectedRect: const Rect.fromLTRB(125, 125, 175, 175),
+        ),
+      ];
+
+      for (final c in cases) {
+        final RenderStack stack = _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+          _at(boxRect, c.box()),
+        ]);
+        expect(
+          regionsFor(stack),
+          _payload(<(int, List<Rect>)>[
+            (1, <Rect>[c.expectedRect]),
+          ]),
+          reason: c.description,
+        );
+        // The claim matches where the target is actually hit.
+        expect(
+          hitsTargetAt(stack, outside),
+          c.expectedRect.contains(outside),
+          reason: c.description,
+        );
+      }
+
+      // A box type the pass knows nothing about, whose children are clipped to
+      // its bounds exactly while its hitTestsChildrenOutsideBounds is false,
+      // read anew on every frame.
+      final proxy = _RenderHitTestOutsideBoundsGate(
+        outsideBounds: false,
+        child: shiftedHitTarget(),
+      );
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        _at(boxRect, proxy),
+      ]);
+      expect(
+        regionsFor(stack),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(125, 125, 150, 150)]),
+        ]),
+      );
+      expect(hitsTargetAt(stack, outside), isFalse);
+
+      proxy.outsideBounds = true;
+      expect(
+        regionsAfterFrame(),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(125, 125, 175, 175)]),
+        ]),
+      );
+      expect(hitsTargetAt(stack, outside), isTrue);
+
+      proxy.outsideBounds = false;
+      expect(
+        regionsAfterFrame(),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTRB(125, 125, 150, 150)]),
+        ]),
+      );
+    },
+  );
+
+  test('children overflowing an empty box claim nothing', () {
+    // Each unclipped stack is laid out at (100, 100) with the given size and
+    // paints a 50x50 hit target at (100, 100, 150, 150), which overflows it
+    // unless the stack is at least that big.
+    const inside = Offset(100.5, 100.5);
+    final cases = <({Size size, List<Rect> expectedRects})>[
+      (size: const Size(1, 1), expectedRects: <Rect>[const Rect.fromLTWH(100, 100, 1, 1)]),
+      (size: Size.zero, expectedRects: <Rect>[]),
+      (size: const Size(0, 50), expectedRects: <Rect>[]),
+      (size: const Size(50, 0), expectedRects: <Rect>[]),
+    ];
+    for (final c in cases) {
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        _at(
+          const Offset(100, 100) & c.size,
+          RenderStack(
+            textDirection: TextDirection.ltr,
+            clipBehavior: Clip.none,
+            children: <RenderBox>[_at(const Rect.fromLTWH(0, 0, 50, 50), _hitTarget())],
+          ),
+        ),
+      ]);
+      expect(
+        regionsFor(stack),
+        _payload(<(int, List<Rect>)>[(1, c.expectedRects)]),
+        reason: '${c.size}',
+      );
+      // The claim matches whether the target can be hit at all.
+      final result = BoxHitTestResult();
+      stack.hitTest(result, position: inside);
+      expect(
+        result.path.any((HitTestEntry entry) => entry.target is RenderPointerListener),
+        c.expectedRects.isNotEmpty,
+        reason: '${c.size}',
+      );
+    }
+  });
+
+  test('hitTestsChildrenOutsideBounds is true only for boxes that hit test children outside their bounds', () {
+    final link = LayerLink();
+    final cases = <({RenderBox box, bool expected})>[
+      (box: RenderConstrainedBox(additionalConstraints: const BoxConstraints()), expected: false),
+      (box: _stack(<RenderBox>[]), expected: false),
+      (box: RenderConstrainedOverflowBox(), expected: false),
+      (box: RenderTransform(transform: Matrix4.identity()), expected: true),
+      (box: RenderFractionalTranslation(translation: Offset.zero), expected: true),
+      (box: RenderFollowerLayer(link: link), expected: true),
+    ];
+    for (final c in cases) {
+      // ignore: invalid_use_of_protected_member
+      expect(c.box.hitTestsChildrenOutsideBounds, c.expected, reason: '${c.box.runtimeType}');
+    }
+  });
+
+  test('visitHitTestRegions rects claim a region only if they contain points after clipping', () {
+    final cases = <({String description, Rect region, List<Rect> expectedRects})>[
+      (description: 'zero', region: Rect.zero, expectedRects: <Rect>[]),
+      (
+        description: 'zero width',
+        region: const Rect.fromLTRB(10, 10, 10, 40),
+        expectedRects: <Rect>[],
+      ),
+      (
+        description: 'inverted',
+        region: const Rect.fromLTRB(40, 40, 10, 10),
+        expectedRects: <Rect>[],
+      ),
+      (
+        description: 'inverted horizontally',
+        region: const Rect.fromLTRB(40, 10, 10, 40),
+        expectedRects: <Rect>[],
+      ),
+      // Rect.largest conventionally means "everywhere"; it is clipped to the
+      // ancestor clip at (50, 50, 150, 150).
+      (
+        description: 'largest',
+        region: Rect.largest,
+        expectedRects: <Rect>[const Rect.fromLTWH(50, 50, 100, 100)],
+      ),
+    ];
+
+    for (final c in cases) {
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        _at(
+          const Rect.fromLTWH(50, 50, 100, 100),
+          RenderClipRect(
+            child: RenderTransform(
+              transform: Matrix4.diagonal3Values(2.0, 2.0, 1.0),
+              child: _RegionHitTestBox(<Rect>[c.region]),
+            ),
+          ),
+        ),
+      ]);
+
+      expect(
+        regionsFor(stack),
+        _payload(<(int, List<Rect>)>[(1, c.expectedRects)]),
+        reason: c.description,
+      );
+    }
+  });
+
+  test('ancestors that hit test within their bounds restrict all descendants, in their own transformed space', () {
+    // An unclipped 50x50 stack scaled by 2, so it hit tests within
+    // (0, 0, 100, 100). Its child stack at (25, 25) overflows it, and that
+    // child's own child fills it, so it lies within its parent but overflows
+    // its grandparent: it paints at (50, 50, 150, 150) but can only be hit at
+    // (50, 50, 100, 100).
+    final RenderStack stack = _stack(<RenderBox>[
+      _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+      _at(
+        const Rect.fromLTWH(0, 0, 50, 50),
+        RenderTransform(
+          transform: Matrix4.diagonal3Values(2.0, 2.0, 1.0),
+          child: RenderStack(
+            textDirection: TextDirection.ltr,
+            clipBehavior: Clip.none,
+            children: <RenderBox>[
+              _at(
+                const Rect.fromLTWH(25, 25, 50, 50),
+                RenderStack(
+                  textDirection: TextDirection.ltr,
+                  children: <RenderBox>[_at(const Rect.fromLTWH(0, 0, 50, 50), _hitTarget())],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ]);
+
+    expect(
+      regionsFor(stack),
+      _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(50, 50, 50, 50)]),
+      ]),
+    );
+  });
+
+  test(
+    'children painted outside a fractional translation or a follower claim where they are painted',
+    () {
+      final link = LayerLink();
+      final RenderStack stack = _stack(<RenderBox>[
+        _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+        // Laid out at (100, 0, 150, 50), but paints its child at
+        // (200, 50, 250, 100), where RenderFractionalTranslation.hitTest
+        // forwards hits without checking its own bounds.
+        _at(
+          const Rect.fromLTWH(100, 0, 50, 50),
+          RenderFractionalTranslation(translation: const Offset(2.0, 1.0), child: _hitTarget()),
+        ),
+        // A leader at (300, 200) that claims nothing itself.
+        _at(const Rect.fromLTWH(300, 200, 50, 50), RenderLeaderLayer(link: link)),
+        // Laid out at (100, 300, 150, 350), but paints its child at the
+        // leader's position offset by (10, 20), that is at (310, 220, 360, 270),
+        // where RenderFollowerLayer.hitTest forwards hits without checking its
+        // own bounds.
+        _at(
+          const Rect.fromLTWH(100, 300, 50, 50),
+          RenderFollowerLayer(
+            link: link,
+            showWhenUnlinked: false,
+            offset: const Offset(10.0, 20.0),
+            child: _hitTarget(),
+          ),
+        ),
+      ]);
+
+      expect(
+        regionsFor(stack),
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[const Rect.fromLTWH(200, 50, 50, 50), const Rect.fromLTWH(310, 220, 50, 50)]),
+        ]),
+      );
+    },
+  );
+
+  test('slivers are not asked for hit-test regions, but boxes inside them are', () {
+    // Scrolled by 30, the second sliver starts at y = 100 - 30 = 70. The first
+    // sliver's child does not accept pointer events; the second sliver's
+    // child is a 50 pixel tall hit target.
+    final sliver = _SliverWithRegionsMethod(
+      <Rect>[const Rect.fromLTRB(10, 5, 60, 25)],
+      child: RenderConstrainedBox(
+        additionalConstraints: const BoxConstraints.tightFor(height: 50),
+        child: _hitTarget(),
+      ),
+    );
+    final viewport = RenderViewport(
+      crossAxisDirection: AxisDirection.right,
+      offset: ViewportOffset.fixed(30.0),
+      children: <RenderSliver>[
+        RenderSliverToBoxAdapter(
+          child: RenderConstrainedBox(
+            additionalConstraints: const BoxConstraints.tightFor(height: 100),
+          ),
+        ),
+        sliver,
+      ],
+    );
+    final RenderStack stack = _stack(<RenderBox>[
+      _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+      _at(const Rect.fromLTWH(0, 0, 400, 400), viewport),
+    ]);
+
+    expect(
+      regionsFor(stack),
+      _payload(<(int, List<Rect>)>[
+        (1, <Rect>[const Rect.fromLTWH(0, 70, 400, 50)]),
+      ]),
+    );
+    expect(sliver.visited, isFalse);
+  });
+
+  test('boxes and CustomPaint painters are asked whether the center of the box is hit', () {
+    // Every box is 100x50, so its center is (50, 25) in its local coordinates.
+    const center = Offset(50, 25);
+    final RenderStack stack = _stack(<RenderBox>[
+      _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+      _at(const Rect.fromLTWH(10, 20, 100, 50), _PointHitTestBox(center)),
+      _at(const Rect.fromLTWH(200, 20, 100, 50), _PointHitTestBox(Offset.zero)),
+      _at(
+        const Rect.fromLTWH(10, 100, 100, 50),
+        RenderCustomPaint(painter: const _PointHitTestPainter(center)),
+      ),
+      _at(
+        const Rect.fromLTWH(200, 100, 100, 50),
+        RenderCustomPaint(foregroundPainter: const _PointHitTestPainter(center)),
+      ),
+      _at(
+        const Rect.fromLTWH(10, 200, 100, 50),
+        RenderCustomPaint(foregroundPainter: const _PointHitTestPainter(Offset.zero)),
+      ),
+    ]);
+    expect(
+      regionsFor(stack),
+      _payload(<(int, List<Rect>)>[
+        (
+          1,
+          <Rect>[
+            const Rect.fromLTWH(10, 20, 100, 50),
+            const Rect.fromLTWH(10, 100, 100, 50),
+            const Rect.fromLTWH(200, 100, 100, 50),
+          ],
+        ),
       ]),
     );
   });
