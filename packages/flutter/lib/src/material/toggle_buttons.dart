@@ -1726,6 +1726,10 @@ class _RenderInputPadding extends RenderShiftedBox {
 
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // [hitTest] only redirects positions within `size` to the child, keeping
+    // the coordinate along the main axis and centering the other. Probing the
+    // child's center approximates that one-axis redirect, so this claims all
+    // of `Offset.zero & size` when the child accepts it.
     final RenderBox? child = this.child;
     if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
       return;

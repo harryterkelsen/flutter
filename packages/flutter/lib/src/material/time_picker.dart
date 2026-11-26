@@ -969,10 +969,15 @@ class _RenderInputPadding extends RenderShiftedBox {
 
   @override
   void visitHitTestRegions(HitTestRegionVisitor visitor) {
-    // Mirrors [hitTest]: positions within `max(child.size, minSize)` that miss
-    // the child are redirected to just before or just after the child's
-    // center along the orientation's axis, so each half of the box claims
-    // its region only if the child accepts the redirected position for it.
+    // Mirrors [hitTest], like the other `_RenderInputPadding` copies in
+    // button.dart, button_style_button.dart, and toggle_buttons.dart.
+    // Positions within `max(child.size, minSize)` that miss the child are
+    // redirected to just before or just after the child's center along the
+    // orientation's axis, so each half claims its region only if the child
+    // accepts the redirected position for it. [hitTest] compares the position
+    // against the child-local center, so the halves split there too. Claims
+    // are limited to `Offset.zero & size`, since ancestors never hit test
+    // positions outside it.
     final RenderBox? child = this.child;
     if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
       return;
@@ -1002,26 +1007,26 @@ class _RenderInputPadding extends RenderShiftedBox {
     if (!hitsBefore && !hitsAfter) {
       return;
     }
-    final Rect half = switch ((orientation, hitsBefore)) {
-      (Orientation.portrait, true) => Rect.fromLTRB(
+    final Rect half = switch (orientation) {
+      Orientation.portrait when hitsBefore => Rect.fromLTRB(
         bounds.left,
         bounds.top,
         bounds.right,
         clampDouble(center.dy, bounds.top, bounds.bottom),
       ),
-      (Orientation.portrait, false) => Rect.fromLTRB(
+      Orientation.portrait => Rect.fromLTRB(
         bounds.left,
         clampDouble(center.dy, bounds.top, bounds.bottom),
         bounds.right,
         bounds.bottom,
       ),
-      (Orientation.landscape, true) => Rect.fromLTRB(
+      Orientation.landscape when hitsBefore => Rect.fromLTRB(
         bounds.left,
         bounds.top,
         clampDouble(center.dx, bounds.left, bounds.right),
         bounds.bottom,
       ),
-      (Orientation.landscape, false) => Rect.fromLTRB(
+      Orientation.landscape => Rect.fromLTRB(
         clampDouble(center.dx, bounds.left, bounds.right),
         bounds.top,
         bounds.right,
