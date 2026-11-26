@@ -3341,6 +3341,19 @@ class RenderMouseRegion extends RenderProxyBoxWithHitTestBehavior
   }
 
   @override
+  @internal
+  @protected
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // When not opaque, hitTest returns false even where hitTestSelf is true,
+    // so this region claims nothing itself. Its children are visited
+    // separately and still claim their own regions.
+    if (!_opaque) {
+      return;
+    }
+    super.visitHitTestRegions(visitor);
+  }
+
+  @override
   void handleEvent(PointerEvent event, HitTestEntry entry) {
     assert(debugHandleEvent(event, entry));
     if (event is PointerHoverEvent) {

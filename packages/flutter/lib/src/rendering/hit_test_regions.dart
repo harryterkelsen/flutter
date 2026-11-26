@@ -2,6 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// This pass reads protected members (hitTestsChildren,
+// hitTestsChildrenOutsideBounds and visitHitTestRegions) of the render objects
+// it walks, because those members answer exactly the questions it needs
+// answered without running a full hit test.
+// ignore_for_file: invalid_use_of_protected_member
+
 /// @docImport 'package:flutter/services.dart';
 ///
 /// @docImport 'proxy_box.dart';
@@ -93,7 +99,8 @@ typedef _PlatformViewHitTestGroup = ({int viewId, Rect platformViewRect, List<Re
 ///   children are visited instead. An absorbing
 ///   [RenderAbsorbPointer] claims its bounds; its subtree is still visited,
 ///   as described above, so that platform views inside it start their own
-///   groups.
+///   groups. A [RenderMouseRegion] that is not [RenderMouseRegion.opaque]
+///   claims nothing itself, but its children still claim theirs.
 /// * Besides the paint clip, a claimed rectangle is clipped to the bounds of
 ///   each ancestor [RenderBox] whose [RenderBox.hitTestsChildrenOutsideBounds]
 ///   is false, because such a box rejects pointer events outside of its size
@@ -250,7 +257,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
     //
     // hitTestsChildren is protected, but whether pointer events can reach a
     // render object's children is exactly what this pass needs to know.
-    // ignore: invalid_use_of_protected_member
     final bool childrenCanClaim = canClaim && node.hitTestsChildren;
 
     // A platform view starts a new group. Everything visited after this point
@@ -281,7 +287,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
       // answered, without running a full hit test.
       currentTransform = transform;
       currentHitTestClip = hitTestClip;
-      // ignore: invalid_use_of_protected_member
       node.visitHitTestRegions(claimRegion);
     }
 
@@ -299,7 +304,6 @@ Float64List? computeHitTestRegions(RenderObject root) {
     if (childrenCanClaim &&
         node is RenderBox &&
         node.hasSize &&
-        // ignore: invalid_use_of_protected_member
         !node.hitTestsChildrenOutsideBounds) {
       descendantsHitTestClip = intersectClip(
         hitTestClip,
