@@ -42,40 +42,65 @@ bool _rectContains(Rect outer, Rect inner) {
       outer.bottom >= inner.bottom;
 }
 
-/// Maps [localRect] by [transform] into the root coordinate space, using a fast
-/// path when [transform] is a 2D translation.
-Rect _toGlobal(Rect localRect, Matrix4 transform) {
+/// Whether [transform] only scales by positive finite factors along the x and
+/// y axes and translates by finite offsets in the plane.
+///
+/// Such a transform maps a rect to a rect without perspective, rotation,
+/// shear or mirroring, so its 2D determinant is simply the product of its x and
+/// y scales. Mirrored (negative) scales and non-finite entries are rejected.
+bool _isSimple2dScaleTranslate(Matrix4 transform) {
   final Float64List s = transform.storage;
-  if (s[0] == 1.0 &&
+  final double sx = s[0];
+  final double sy = s[5];
+  return sx > 0.0 &&
+      sx.isFinite &&
+      sy > 0.0 &&
+      sy.isFinite &&
+      s[12].isFinite &&
+      s[13].isFinite &&
       s[1] == 0.0 &&
       s[2] == 0.0 &&
       s[3] == 0.0 &&
       s[4] == 0.0 &&
-      s[5] == 1.0 &&
       s[6] == 0.0 &&
       s[7] == 0.0 &&
       s[8] == 0.0 &&
       s[9] == 0.0 &&
-      s[10] == 1.0 &&
       s[11] == 0.0 &&
       s[14] == 0.0 &&
-      s[15] == 1.0) {
+      s[10] == 1.0 &&
+      s[15] == 1.0;
+}
+
+/// Whether [transform] only scales by positive finite factors along the x and
+/// y axes and translates by finite offsets in the plane, which lets
+/// [computeHitTestRegions] map rects through it without a general [Matrix4]
+/// transform.
+@visibleForTesting
+bool debugIsSimple2dScaleTranslate(Matrix4 transform) => _isSimple2dScaleTranslate(transform);
+
+/// Maps [localRect] by [transform] into the root coordinate space, using a fast
+/// path when [transform] is a positive 2D scale followed by a 2D translation.
+Rect _toGlobal(Rect localRect, Matrix4 transform) {
+  if (_isSimple2dScaleTranslate(transform) &&
+      localRect.left.isFinite &&
+      localRect.top.isFinite &&
+      localRect.right.isFinite &&
+      localRect.bottom.isFinite) {
+    final Float64List s = transform.storage;
+    final double sx = s[0];
+    final double sy = s[5];
     final double dx = s[12];
     final double dy = s[13];
-    if (localRect.left.isFinite &&
-        localRect.top.isFinite &&
-        localRect.right.isFinite &&
-        localRect.bottom.isFinite) {
-      if (dx == 0.0 && dy == 0.0) {
-        return localRect;
-      }
-      return Rect.fromLTRB(
-        localRect.left + dx,
-        localRect.top + dy,
-        localRect.right + dx,
-        localRect.bottom + dy,
-      );
+    if (sx == 1.0 && sy == 1.0 && dx == 0.0 && dy == 0.0) {
+      return localRect;
     }
+    return Rect.fromLTRB(
+      dx + sx * localRect.left,
+      dy + sy * localRect.top,
+      dx + sx * localRect.right,
+      dy + sy * localRect.bottom,
+    );
   }
   return MatrixUtils.transformRect(transform, localRect);
 }
@@ -354,17 +379,28 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     // is zero, and RenderFittedBox / keep-alive slivers apply Matrix4.zero())
     // nor 2D hit tested (BoxHitTestResult.addWithPaintTransform rejects
     // transforms whose 2D projection after removing perspective is singular).
-    final double det = transform.determinant();
-    if (det == 0.0 || !det.isFinite) {
-      return;
-    }
-    final Float64List s = transform.storage;
-    final double det2d =
-        s[0] * (s[5] * s[15] - s[13] * s[7]) -
-        s[4] * (s[1] * s[15] - s[13] * s[3]) +
-        s[12] * (s[1] * s[7] - s[5] * s[3]);
-    if (det2d == 0.0 || !det2d.isFinite) {
-      return;
+    // For a positive 2D scale and translation (by far the most common case,
+    // since the root applies the device pixel ratio and most descendants only
+    // add offsets), both determinants equal the product of the two scales.
+    if (_isSimple2dScaleTranslate(transform)) {
+      final Float64List s = transform.storage;
+      final double scaleProduct = s[0] * s[5];
+      if (scaleProduct == 0.0 || !scaleProduct.isFinite) {
+        return;
+      }
+    } else {
+      final double det = transform.determinant();
+      if (det == 0.0 || !det.isFinite) {
+        return;
+      }
+      final Float64List s = transform.storage;
+      final double det2d =
+          s[0] * (s[5] * s[15] - s[13] * s[7]) -
+          s[4] * (s[1] * s[15] - s[13] * s[3]) +
+          s[12] * (s[1] * s[7] - s[5] * s[3]);
+      if (det2d == 0.0 || !det2d.isFinite) {
+        return;
+      }
     }
     // Pointer events reach [node]'s children only if they reach [node] and
     // [node] passes them on. A render object that stops them from reaching its
