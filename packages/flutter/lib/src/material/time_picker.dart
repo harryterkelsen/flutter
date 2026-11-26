@@ -966,6 +966,72 @@ class _RenderInputPadding extends RenderShiftedBox {
       },
     );
   }
+
+  @override
+  void visitHitTestRegions(HitTestRegionVisitor visitor) {
+    // Mirrors [hitTest]: positions within `max(child.size, minSize)` that miss
+    // the child are redirected to just before or just after the child's
+    // center along the orientation's axis, so each half of the box claims
+    // its region only if the child accepts the redirected position for it.
+    final RenderBox? child = this.child;
+    if (!hasSize || size.isEmpty || child == null || !child.hasSize) {
+      return;
+    }
+    final Rect bounds = (Offset.zero & size).intersect(
+      Rect.fromLTWH(
+        0,
+        0,
+        math.max(child.size.width, minSize.width),
+        math.max(child.size.height, minSize.height),
+      ),
+    );
+    if (bounds.isEmpty) {
+      return;
+    }
+    final Offset center = child.size.center(Offset.zero);
+    final Offset step = switch (orientation) {
+      Orientation.portrait => const Offset(0, 1),
+      Orientation.landscape => const Offset(1, 0),
+    };
+    final bool hitsBefore = child.hitTest(BoxHitTestResult(), position: center - step);
+    final bool hitsAfter = child.hitTest(BoxHitTestResult(), position: center + step);
+    if (hitsBefore && hitsAfter) {
+      visitor(bounds);
+      return;
+    }
+    if (!hitsBefore && !hitsAfter) {
+      return;
+    }
+    final Rect half = switch ((orientation, hitsBefore)) {
+      (Orientation.portrait, true) => Rect.fromLTRB(
+        bounds.left,
+        bounds.top,
+        bounds.right,
+        clampDouble(center.dy, bounds.top, bounds.bottom),
+      ),
+      (Orientation.portrait, false) => Rect.fromLTRB(
+        bounds.left,
+        clampDouble(center.dy, bounds.top, bounds.bottom),
+        bounds.right,
+        bounds.bottom,
+      ),
+      (Orientation.landscape, true) => Rect.fromLTRB(
+        bounds.left,
+        bounds.top,
+        clampDouble(center.dx, bounds.left, bounds.right),
+        bounds.bottom,
+      ),
+      (Orientation.landscape, false) => Rect.fromLTRB(
+        clampDouble(center.dx, bounds.left, bounds.right),
+        bounds.top,
+        bounds.right,
+        bounds.bottom,
+      ),
+    };
+    if (!half.isEmpty) {
+      visitor(half);
+    }
+  }
 }
 
 class _TappableLabel {
