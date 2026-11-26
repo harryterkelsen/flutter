@@ -1026,6 +1026,126 @@ void main() {
         ]),
       );
     });
+
+    test('claims and platform views map to their exact physical bounds under scaled, mirrored, '
+        'rotated and perspective transforms, and singular or non-finite subtrees are skipped', () {
+      binding.renderView.configuration = _viewConfiguration(devicePixelRatio: 2.0);
+      // Every rect below is in logical pixels; the root view scales it by the
+      // device pixel ratio of 2.
+      Matcher payloadCloseTo(List<(int, List<Rect>)> groups) {
+        return pairwiseCompare<double, double>(
+          _payload(groups, scale: 2.0),
+          (double expected, double actual) => (expected - actual).abs() < 1e-9,
+          'within 1e-9 of',
+        );
+      }
+
+      // Nested translations: (30, 40) + (10, 20) + (5, 5).
+      const translatedClaim = Rect.fromLTWH(45, 65, 100, 50);
+      // Mirrored horizontally about its center, so it covers its own slot.
+      const mirroredClaim = Rect.fromLTWH(200, 20, 100, 40);
+      // A 100x40 box at (100, 100) rotated by exactly 90 degrees about its
+      // center (150, 120) becomes 40x100.
+      const rotatedClaim = Rect.fromLTRB(130, 70, 170, 170);
+      // A 100x40 box at the origin (so that no translation mixes into the
+      // perspective entry) whose w grows from 1 at x = 0 to 2 at x = 100: x
+      // maps to x / (1 + x / 100) and y to y / (1 + x / 100), so its bounds
+      // are 50x40.
+      const perspectiveClaim = Rect.fromLTWH(0, 0, 50, 40);
+      final perspective = Matrix4.identity()..setEntry(3, 0, 0.01);
+      final rotation = Matrix4(0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+
+      expect(
+        regionsFor(
+          _stack(<RenderBox>[
+            _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+            _at(
+              const Rect.fromLTWH(30, 40, 100, 50),
+              RenderTransform(
+                transform: Matrix4.translationValues(10, 20, 0),
+                child: RenderTransform(
+                  transform: Matrix4.translationValues(5, 5, 0),
+                  child: _hitTarget(),
+                ),
+              ),
+            ),
+            _at(
+              mirroredClaim,
+              RenderTransform(
+                transform: Matrix4.diagonal3Values(-1, 1, 1),
+                alignment: Alignment.center,
+                child: _hitTarget(),
+              ),
+            ),
+            _at(
+              const Rect.fromLTWH(100, 100, 100, 40),
+              RenderTransform(
+                transform: rotation,
+                alignment: Alignment.center,
+                child: _hitTarget(),
+              ),
+            ),
+            _at(
+              const Rect.fromLTWH(0, 0, 100, 40),
+              RenderTransform(transform: perspective, child: _hitTarget()),
+            ),
+            // Singular and non-finite subtrees over the platform view claim
+            // nothing.
+            _at(
+              const Rect.fromLTWH(50, 300, 100, 40),
+              RenderTransform(transform: Matrix4.diagonal3Values(0, 1, 1), child: _hitTarget()),
+            ),
+            _at(
+              const Rect.fromLTWH(150, 300, 50, 50),
+              RenderTransform(
+                transform: Matrix4.translationValues(double.infinity, 0, 0),
+                child: _hitTarget(),
+              ),
+            ),
+            _at(
+              const Rect.fromLTWH(250, 300, 50, 50),
+              RenderTransform(
+                transform: Matrix4.translationValues(0, double.nan, 0),
+                child: _hitTarget(),
+              ),
+            ),
+          ]),
+        ),
+        payloadCloseTo(<(int, List<Rect>)>[
+          (1, <Rect>[translatedClaim, mirroredClaim, rotatedClaim, perspectiveClaim]),
+        ]),
+      );
+
+      // A platform view mirrored vertically about its center still covers its
+      // own slot and starts a group, while one under a non-finite translation
+      // starts none.
+      const claimOverMirroredPv = Rect.fromLTWH(150, 120, 40, 30);
+      expect(
+        regionsFor(
+          _stack(<RenderBox>[
+            _at(
+              const Rect.fromLTWH(100, 100, 200, 100),
+              RenderTransform(
+                transform: Matrix4.diagonal3Values(1, -1, 1),
+                alignment: Alignment.center,
+                child: _platformView(2),
+              ),
+            ),
+            _at(claimOverMirroredPv, _hitTarget()),
+            _at(
+              const Rect.fromLTWH(100, 100, 200, 100),
+              RenderTransform(
+                transform: Matrix4.translationValues(double.nan, 0, 0),
+                child: _platformView(3),
+              ),
+            ),
+          ]),
+        ),
+        payloadCloseTo(<(int, List<Rect>)>[
+          (2, <Rect>[claimOverMirroredPv]),
+        ]),
+      );
+    });
   });
 
   group('claim rules', () {
@@ -1882,6 +2002,59 @@ void main() {
   });
 
   group('performance optimizations', () {
+    test('debugIsSimple2dScaleTranslate accepts only positive finite 2D scales with finite '
+        'translations', () {
+      // Returns the identity matrix with storage[index] set to value.
+      Matrix4 withEntry(int index, double value) => Matrix4.identity()..storage[index] = value;
+
+      final cases = <(String, Matrix4, bool)>[
+        ('identity', Matrix4.identity(), true),
+        ('translation', Matrix4.translationValues(12.5, -30, 0), true),
+        (
+          'device pixel ratio scale then translation',
+          Matrix4.translationValues(5, 7, 0)..multiply(Matrix4.diagonal3Values(2, 2, 1)),
+          true,
+        ),
+        ('non-uniform positive scale', Matrix4.diagonal3Values(3, 0.25, 1), true),
+        ('negative zero off-diagonal entry', withEntry(1, -0.0), true),
+        ('mirrored x scale', Matrix4.diagonal3Values(-1, 1, 1), false),
+        ('mirrored y scale', Matrix4.diagonal3Values(1, -1, 1), false),
+        (
+          'mirrored x scale with translation',
+          Matrix4.translationValues(100, 0, 0)..multiply(Matrix4.diagonal3Values(-2, 2, 1)),
+          false,
+        ),
+        ('zero x scale', Matrix4.diagonal3Values(0, 1, 1), false),
+        ('zero y scale', Matrix4.diagonal3Values(1, 0, 1), false),
+        ('NaN x scale', withEntry(0, double.nan), false),
+        ('infinite x scale', withEntry(0, double.infinity), false),
+        ('NaN y scale', withEntry(5, double.nan), false),
+        ('infinite y scale', withEntry(5, double.infinity), false),
+        ('NaN x translation', withEntry(12, double.nan), false),
+        ('infinite x translation', Matrix4.translationValues(double.infinity, 0, 0), false),
+        ('NaN y translation', withEntry(13, double.nan), false),
+        (
+          'negative infinite y translation',
+          Matrix4.translationValues(0, double.negativeInfinity, 0),
+          false,
+        ),
+        ('z scale', Matrix4.diagonal3Values(1, 1, 2), false),
+        ('zero z scale', Matrix4.diagonal3Values(1, 1, 0), false),
+        ('z translation', Matrix4.translationValues(0, 0, 3), false),
+        ('rotation', Matrix4.rotationZ(0.5), false),
+        ('w scale', withEntry(15, 2), false),
+        ('NaN off-diagonal entry', withEntry(1, double.nan), false),
+        // Every other entry (shear, rotation, z mixing and perspective) must be
+        // exactly zero.
+        for (final int index in <int>[1, 2, 3, 4, 6, 7, 8, 9, 11, 14])
+          ('storage[$index] non-zero', withEntry(index, 0.001), false),
+      ];
+
+      for (final (String description, Matrix4 transform, bool expected) in cases) {
+        expect(debugIsSimple2dScaleTranslate(transform), expected, reason: description);
+      }
+    });
+
     test('deduplicates contained rects within a group in both forward and reverse order', () {
       debugEnableHitTestRegionsOnAllPlatforms = true;
       binding.automaticPointerInterceptorsEnabled = true;
@@ -2004,9 +2177,11 @@ void main() {
         equals(Float64List.fromList(<double>[1.0, 1.0, 10.0, 20.0, 110.0, 70.0])),
       );
 
-      // Frame 2: unchanged hit-test regions do not invoke onHitTestRegionsUpdate again.
+      // Frame 2: unchanged hit-test regions do not invoke onHitTestRegionsUpdate again,
+      // and the list dispatched in frame 1 is kept rather than the recomputed copy.
       flushFrame();
       expect(updates, hasLength(1));
+      expect(owner.debugLastHitTestRegions, same(updates.single));
 
       // Frame 3: moving the overlay changes the regions and invokes onHitTestRegionsUpdate.
       (overlay.parentData! as StackParentData).left = 30.0;
