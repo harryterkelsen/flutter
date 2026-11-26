@@ -584,24 +584,34 @@ mixin RendererBinding
 
   bool _automaticPointerInterceptorsEnabled = true;
 
-  /// Whether the framework automatically computes hit-test regions that overlap
-  /// platform views and sends them to the engine each frame.
+  /// Whether the framework automatically computes the hit-test regions of
+  /// Flutter content painted over platform views and sends them to the engine.
   ///
-  /// When enabled, [PipelineOwner.flushHitTestRegions] runs after every frame
-  /// and, while a platform view is attached, reports the hit-test regions that
-  /// overlap it through [PipelineOwner.onHitTestRegionsUpdate] so the web
-  /// engine can intercept pointer events over platform views.
+  /// Defaults to true.
   ///
   /// This flag is experimental. It is initialized to true on every platform,
   /// but automatic pointer interception is only active on the web (or on other
   /// platforms when [debugEnableHitTestRegionsOnAllPlatforms] is enabled in
   /// tests).
   ///
-  /// On the web, setting this to false at runtime opts out: it immediately
-  /// calls [PipelineOwner.clearHitTestRegions] to remove any hit-test regions
-  /// previously sent to the engine. Setting it back to true calls
-  /// [scheduleFrame] so that the regions are promptly recomputed and sent
-  /// again. Assigning the current value is a no-op and schedules no frame.
+  /// When enabled on the web and a platform view is attached, the framework
+  /// computes, after each frame, the regions where Flutter content that accepts
+  /// pointer events paints over a platform view, and sends them to the web
+  /// engine. The engine covers those regions with invisible hit-test proxies,
+  /// so that pointer events over Flutter content such as dialogs, menus, and
+  /// modal barriers reach Flutter instead of the platform view beneath them,
+  /// without wrapping that content in a pointer interceptor widget.
+  ///
+  /// Targets that use [HitTestBehavior.translucent] intentionally do not claim
+  /// regions over platform views, so they never block the platform view beneath
+  /// them. To make an invisible area over a platform view receive pointer
+  /// events, use [HitTestBehavior.opaque] instead.
+  ///
+  /// On the web, setting this to false at runtime opts out: any hit-test
+  /// regions previously sent to the engine are cleared and a frame is
+  /// scheduled, so the engine removes its hit-test proxies. Setting it back to
+  /// true schedules a frame so that the regions are recomputed and sent again.
+  /// Assigning the current value is a no-op and schedules no frame.
   ///
   /// While a drag is in progress, pointer capture keeps it active when the
   /// pointer moves over a platform view such as an iframe. The semantics host
@@ -610,8 +620,6 @@ mixin RendererBinding
   /// clicks. As a result, when accessibility semantics are enabled, a drag that
   /// starts on a semantics node pauses while the pointer is over an iframe
   /// platform view.
-  ///
-  /// Defaults to true.
   bool get automaticPointerInterceptorsEnabled => _automaticPointerInterceptorsEnabled;
   set automaticPointerInterceptorsEnabled(bool value) {
     if (_automaticPointerInterceptorsEnabled == value) {

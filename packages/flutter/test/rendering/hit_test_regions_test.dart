@@ -296,9 +296,11 @@ void main() {
       expect(binding.hasScheduledFrame, isFalse);
       expect(binding.rootPipelineOwner.debugLastHitTestRegions, equals(expectedRegions));
 
-      // Opting out clears regions; re-enabling schedules a frame and restores them.
+      // Opting out clears regions and schedules a frame; re-enabling schedules
+      // a frame and restores them.
       binding.automaticPointerInterceptorsEnabled = false;
       expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
+      expect(binding.hasScheduledFrame, isTrue);
       binding.pumpCompleteFrame();
       expect(binding.rootPipelineOwner.debugLastHitTestRegions, isNull);
       binding.automaticPointerInterceptorsEnabled = true;
