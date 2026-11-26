@@ -72,21 +72,6 @@ class PlatformViewEmbedder {
   /// (in physical pixels) and device pixel ratio they were last built with.
   final Map<int, _HitTestProxyElement> _hitTestProxies = <int, _HitTestProxyElement>{};
 
-  static bool _float64ListEquals(Float64List? a, Float64List? b) {
-    if (identical(a, b)) {
-      return true;
-    }
-    if (a == null || b == null || a.length != b.length) {
-      return false;
-    }
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   /// Returns the most recent composition. Only used in tests.
   Composition get debugActiveComposition => _activeComposition;
 
@@ -138,12 +123,19 @@ class PlatformViewEmbedder {
   /// non-empty group in [regions]. Groups for platform views that are not in
   /// the scene are ignored.
   ///
+  /// Reporting a payload equal to the previous one is a no-op: it is neither
+  /// decoded again nor does it touch the proxies' child elements. The proxies
+  /// are still inserted into every subsequent composition.
+  ///
   /// See [ui.FlutterView.updateHitTestRegions] for the encoding of [regions].
   void updateHitTestRegions(Float64List regions) {
-    if (_float64ListEquals(_lastHitTestRegionsPayload, regions)) {
+    final Float64List? lastPayload = _lastHitTestRegionsPayload;
+    if (identical(lastPayload, regions) || listEquals(lastPayload, regions)) {
       return;
     }
-    _lastHitTestRegionsPayload = regions;
+    // Keep a copy so that a caller reusing and mutating its buffer is not
+    // mistaken for reporting an unchanged payload.
+    _lastHitTestRegionsPayload = Float64List.fromList(regions);
     _hitTestRegions = <int, List<ui.Rect>>{
       for (final HitTestProxyGroup group in decodeHitTestRegions(regions))
         if (group.rects.isNotEmpty) group.viewId: group.rects,
@@ -176,7 +168,13 @@ class PlatformViewEmbedder {
         continue;
       }
       final DomElement element = proxy?.element ?? createHitTestProxyElement();
-      updateHitTestProxyElement(element, rects, devicePixelRatio);
+      updateHitTestProxyElement(
+        element,
+        rects,
+        devicePixelRatio,
+        previousRects: proxy?.rects,
+        previousDevicePixelRatio: proxy?.devicePixelRatio,
+      );
       _hitTestProxies[entity.viewId] = (
         element: element,
         rects: rects,

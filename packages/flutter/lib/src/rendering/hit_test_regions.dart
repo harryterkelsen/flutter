@@ -308,8 +308,9 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     return parent.describeApproximatePaintClip(child);
   }
 
-  // Maps [localRect] by [transform] into the root coordinate space.
-  Rect toGlobal(Rect localRect, Matrix4 transform) {
+  // Maps [localRect] by [transform] into the root coordinate space, or returns
+  // [Rect.zero] if [localRect] is empty.
+  Rect toGlobalOrZero(Rect localRect, Matrix4 transform) {
     return localRect.isEmpty ? Rect.zero : _toGlobal(localRect, transform);
   }
 
@@ -417,8 +418,9 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     // paints on top of it.
     if (node is PlatformViewRenderBox) {
       visitedPlatformViews += 1;
+      assert(totalPlatformViews == null || visitedPlatformViews <= totalPlatformViews);
       if (!node.size.isEmpty) {
-        final Rect globalRect = toGlobal(Offset.zero & node.size, transform);
+        final Rect globalRect = toGlobalOrZero(Offset.zero & node.size, transform);
         if (!globalRect.isFinite || globalRect.isEmpty) {
           return;
         }
@@ -438,12 +440,14 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
       return;
     }
 
-    final bool checksBounds =
-        canClaim &&
+    // Whether [node] is a box that rejects pointer events outside of its size
+    // before hit testing its children. Boxes that have never been laid out
+    // returned above.
+    final bool hitTestsWithinBounds =
         node is RenderBox &&
-        node.hasSize &&
         // ignore: invalid_use_of_protected_member
         !node.hitTestsChildrenOutsideBounds;
+    final bool checksBounds = canClaim && hitTestsWithinBounds;
     var nodeClaimedOwnBounds = false;
 
     // Nothing can cover a platform view until one has been painted, and
@@ -475,16 +479,11 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
         ? groups.length
         : clipMissedAtGroupCount;
     final Rect? descendantsHitTestClip;
-    final bool restrictsChildren =
-        childrenCanClaim &&
-        node is RenderBox &&
-        node.hasSize &&
-        // ignore: invalid_use_of_protected_member
-        !node.hitTestsChildrenOutsideBounds;
+    final bool restrictsChildren = childrenCanClaim && hitTestsWithinBounds;
     if (restrictsChildren) {
       descendantsHitTestClip = intersectClip(
         hitTestClip,
-        toGlobal(Offset.zero & node.size, transform),
+        toGlobalOrZero(Offset.zero & node.size, transform),
       );
       if (groups.isNotEmpty &&
           descendantsClipMissedAtGroupCount != groups.length &&
@@ -532,7 +531,7 @@ Float64List? computeHitTestRegions(RenderObject root, {bool enableEarlyStop = tr
     var childClipMissedAtGroupCount = clipMissedAtGroupCount;
     final Rect? localClip = paintClipOf(node, child);
     if (localClip != null) {
-      final Rect globalClip = toGlobal(localClip, transform);
+      final Rect globalClip = toGlobalOrZero(localClip, transform);
       childClip = intersectClip(childClip, globalClip);
       if (childCanClaim) {
         childHitTestClip = intersectClip(childHitTestClip, globalClip);

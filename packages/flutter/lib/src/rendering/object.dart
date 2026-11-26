@@ -1793,23 +1793,9 @@ base class PipelineOwner with DiagnosticableTreeMixin {
     return null;
   }
 
-  static bool _float64ListEquals(Float64List? a, Float64List? b) {
-    if (identical(a, b)) {
-      return true;
-    }
-    if (a == null || b == null || a.length != b.length) {
-      return false;
-    }
-    for (var i = 0; i < a.length; i++) {
-      if (a[i] != b[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
   /// Computes the hit-test regions that overlap any attached platform views
-  /// and dispatches the encoded payload to [onHitTestRegionsUpdate].
+  /// and dispatches the encoded payload to [onHitTestRegionsUpdate] if it
+  /// differs from the previously dispatched payload.
   ///
   /// Each pipeline owner only walks its own render tree, and only while it has
   /// platform views attached; child pipeline owners are always visited, since
@@ -1831,7 +1817,7 @@ base class PipelineOwner with DiagnosticableTreeMixin {
         }
       }
     }
-    final bool unchanged = _float64ListEquals(regions, _lastHitTestRegions);
+    final bool unchanged = listEquals(regions, _lastHitTestRegions);
     if (!unchanged) {
       _lastHitTestRegions = regions;
     }

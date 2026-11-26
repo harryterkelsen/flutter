@@ -107,7 +107,22 @@ DomElement _createOrTakeRectElement() {
 ///
 /// The [rects] are in physical pixels and are converted to CSS pixels using
 /// [devicePixelRatio].
-void updateHitTestProxyElement(DomElement element, List<ui.Rect> rects, double devicePixelRatio) {
+///
+/// If [previousRects] and [previousDevicePixelRatio] describe what the
+/// existing children of [element] were last built with, children whose rect
+/// and device pixel ratio are unchanged are left untouched. Comparing the
+/// numbers avoids reading the styles back from the browser, which serializes
+/// them differently from Dart (for example, `10px` rather than `10.0px`).
+void updateHitTestProxyElement(
+  DomElement element,
+  List<ui.Rect> rects,
+  double devicePixelRatio, {
+  List<ui.Rect>? previousRects,
+  double? previousDevicePixelRatio,
+}) {
+  final List<ui.Rect>? unchangedRects = previousDevicePixelRatio == devicePixelRatio
+      ? previousRects
+      : null;
   DomElement? currentChild = element.firstElementChild;
   for (var i = 0; i < rects.length; i++) {
     final ui.Rect rect = rects[i];
@@ -115,27 +130,18 @@ void updateHitTestProxyElement(DomElement element, List<ui.Rect> rects, double d
     if (currentChild != null) {
       rectElement = currentChild;
       currentChild = currentChild.nextElementSibling;
+      if (unchangedRects != null && i < unchangedRects.length && unchangedRects[i] == rect) {
+        continue;
+      }
     } else {
       rectElement = _createOrTakeRectElement();
       element.append(rectElement);
     }
-    final DomCSSStyleDeclaration style = rectElement.style;
-    final leftCss = '${rect.left / devicePixelRatio}px';
-    final topCss = '${rect.top / devicePixelRatio}px';
-    final widthCss = '${rect.width / devicePixelRatio}px';
-    final heightCss = '${rect.height / devicePixelRatio}px';
-    if (style.left != leftCss) {
-      style.left = leftCss;
-    }
-    if (style.top != topCss) {
-      style.top = topCss;
-    }
-    if (style.width != widthCss) {
-      style.width = widthCss;
-    }
-    if (style.height != heightCss) {
-      style.height = heightCss;
-    }
+    rectElement.style
+      ..left = '${rect.left / devicePixelRatio}px'
+      ..top = '${rect.top / devicePixelRatio}px'
+      ..width = '${rect.width / devicePixelRatio}px'
+      ..height = '${rect.height / devicePixelRatio}px';
   }
   while (currentChild != null) {
     final DomElement? next = currentChild.nextElementSibling;

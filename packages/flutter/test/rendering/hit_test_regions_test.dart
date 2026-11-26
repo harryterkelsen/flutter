@@ -211,10 +211,6 @@ RenderBox _positioned({
   return child;
 }
 
-PlatformViewRenderBox _createPlatformView(int viewId) {
-  return _platformView(viewId);
-}
-
 RenderBox _createHitTarget({
   double width = 100.0,
   double height = 50.0,
@@ -332,18 +328,6 @@ class _TestRenderingBinding extends TestRenderingFlutterBinding {
     }
     super.drawFrame();
   }
-}
-
-ViewConfiguration _createViewConfiguration({
-  Size size = const Size(800.0, 600.0),
-  double devicePixelRatio = 1.0,
-}) {
-  final logicalConstraints = BoxConstraints.tight(size);
-  return ViewConfiguration(
-    logicalConstraints: logicalConstraints,
-    physicalConstraints: logicalConstraints * devicePixelRatio,
-    devicePixelRatio: devicePixelRatio,
-  );
 }
 
 void main() {
@@ -2182,16 +2166,13 @@ void main() {
     });
 
     test('deduplicates contained rects within a group in both forward and reverse order', () {
-      debugEnableHitTestRegionsOnAllPlatforms = true;
-      binding.automaticPointerInterceptorsEnabled = true;
-
       // Forward containment: outer rect [10, 10, 140, 140] is claimed first,
       // followed by inner rect [20, 20, 100, 100] and identical rect [10, 10, 140, 140].
       // None of them cover the entire 500x500 platform view.
       final forwardStack = RenderStack(
         textDirection: TextDirection.ltr,
         children: <RenderBox>[
-          _positioned(left: 0, top: 0, width: 500, height: 500, child: _createPlatformView(1)),
+          _positioned(left: 0, top: 0, width: 500, height: 500, child: _platformView(1)),
           _positioned(
             left: 10,
             top: 10,
@@ -2229,7 +2210,7 @@ void main() {
       final reverseStack = RenderStack(
         textDirection: TextDirection.ltr,
         children: <RenderBox>[
-          _positioned(left: 0, top: 0, width: 500, height: 500, child: _createPlatformView(1)),
+          _positioned(left: 0, top: 0, width: 500, height: 500, child: _platformView(1)),
           _positioned(
             left: 20,
             top: 20,
@@ -2256,13 +2237,10 @@ void main() {
     });
 
     test('skips onHitTestRegionsUpdate when payload is unchanged across frames', () {
-      debugEnableHitTestRegionsOnAllPlatforms = true;
-      binding.automaticPointerInterceptorsEnabled = true;
-
       final updates = <Float64List>[];
       final owner = PipelineOwner(onHitTestRegionsUpdate: updates.add);
       final view = RenderView(
-        configuration: _createViewConfiguration(),
+        configuration: _viewConfiguration(),
         view: binding.platformDispatcher.views.single,
       );
       owner.rootNode = view;
@@ -2282,7 +2260,7 @@ void main() {
       final stack = RenderStack(
         textDirection: TextDirection.ltr,
         children: <RenderBox>[
-          _positioned(left: 0, top: 0, width: 300, height: 300, child: _createPlatformView(1)),
+          _positioned(left: 0, top: 0, width: 300, height: 300, child: _platformView(1)),
           overlay,
         ],
       );
@@ -2323,9 +2301,6 @@ void main() {
     test(
       'skips visiting hit-test regions in clipped subtrees that miss all earlier platform views',
       () {
-        debugEnableHitTestRegionsOnAllPlatforms = true;
-        binding.automaticPointerInterceptorsEnabled = true;
-
         final nestedTarget1 = _CountingHitTestBox();
         final nestedTarget2 = _CountingHitTestBox();
 
@@ -2343,7 +2318,7 @@ void main() {
         final stack1 = RenderStack(
           textDirection: TextDirection.ltr,
           children: <RenderBox>[
-            _positioned(left: 0, top: 0, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 0, top: 0, width: 100, height: 100, child: _platformView(1)),
             _positioned(left: 0, top: 0, width: 400, height: 400, child: clippedSubtreeWithoutPv),
           ],
         );
@@ -2367,13 +2342,7 @@ void main() {
             textDirection: TextDirection.ltr,
             children: <RenderBox>[
               _positioned(left: 210, top: 210, width: 50, height: 50, child: beforePv2InClip),
-              _positioned(
-                left: 210,
-                top: 210,
-                width: 50,
-                height: 50,
-                child: _createPlatformView(2),
-              ),
+              _positioned(left: 210, top: 210, width: 50, height: 50, child: _platformView(2)),
               _positioned(left: 220, top: 220, width: 30, height: 30, child: afterPv2InClip),
             ],
           ),
@@ -2382,7 +2351,7 @@ void main() {
         final stack2 = RenderStack(
           textDirection: TextDirection.ltr,
           children: <RenderBox>[
-            _positioned(left: 0, top: 0, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 0, top: 0, width: 100, height: 100, child: _platformView(1)),
             _positioned(left: 0, top: 0, width: 400, height: 400, child: clippedSubtreeWithPv2),
           ],
         );
@@ -2401,14 +2370,11 @@ void main() {
     );
 
     test('stops visiting hit-test regions after full cover until next platform view and matches enableEarlyStop: false', () {
-      debugEnableHitTestRegionsOnAllPlatforms = true;
-      binding.automaticPointerInterceptorsEnabled = true;
-
       final coveredAfterFullCover = _CountingHitTestBox();
       final singlePvFullCoverStack = RenderStack(
         textDirection: TextDirection.ltr,
         children: <RenderBox>[
-          _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+          _positioned(left: 50, top: 50, width: 100, height: 100, child: _platformView(1)),
           _positioned(
             left: 60,
             top: 60,
@@ -2444,7 +2410,7 @@ void main() {
       final twoPvFullCoverStack = RenderStack(
         textDirection: TextDirection.ltr,
         children: <RenderBox>[
-          _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+          _positioned(left: 50, top: 50, width: 100, height: 100, child: _platformView(1)),
           _positioned(
             left: 55,
             top: 55,
@@ -2460,7 +2426,7 @@ void main() {
             child: _createHitTarget(width: 200, height: 200),
           ),
           _positioned(left: 60, top: 60, width: 20, height: 20, child: skippedInGroup1),
-          _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(2)),
+          _positioned(left: 50, top: 50, width: 100, height: 100, child: _platformView(2)),
           _positioned(left: 70, top: 70, width: 30, height: 30, child: visitedInGroup2),
         ],
       );
@@ -2482,7 +2448,7 @@ void main() {
         RenderStack(
           textDirection: TextDirection.ltr,
           children: <RenderBox>[
-            _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 50, top: 50, width: 100, height: 100, child: _platformView(1)),
             _positioned(
               left: 25,
               top: 25,
@@ -2503,7 +2469,7 @@ void main() {
         RenderStack(
           textDirection: TextDirection.ltr,
           children: <RenderBox>[
-            _positioned(left: 40, top: 40, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 40, top: 40, width: 100, height: 100, child: _platformView(1)),
             _positioned(
               left: 0,
               top: 0,
@@ -2692,9 +2658,6 @@ void main() {
     test(
       'covering only one of multiple earlier platform views does not trigger premature early-stop',
       () {
-        debugEnableHitTestRegionsOnAllPlatforms = true;
-        binding.automaticPointerInterceptorsEnabled = true;
-
         final targetOverPv2AfterPv1Cover = _CountingHitTestBox();
         final targetAfterBothCovered = _CountingHitTestBox();
 
@@ -2707,8 +2670,8 @@ void main() {
         final stack = RenderStack(
           textDirection: TextDirection.ltr,
           children: <RenderBox>[
-            _positioned(left: 0, top: 0, width: 100, height: 100, child: _createPlatformView(1)),
-            _positioned(left: 0, top: 200, width: 100, height: 100, child: _createPlatformView(2)),
+            _positioned(left: 0, top: 0, width: 100, height: 100, child: _platformView(1)),
+            _positioned(left: 0, top: 200, width: 100, height: 100, child: _platformView(2)),
             _positioned(
               left: 0,
               top: 0,
@@ -2747,16 +2710,13 @@ void main() {
     test(
       'absorbing RenderAbsorbPointer still skips its subtree during early-stop and clip-miss',
       () {
-        debugEnableHitTestRegionsOnAllPlatforms = true;
-        binding.automaticPointerInterceptorsEnabled = true;
-
         final insideEarlyStoppedAbsorber = _CountingHitTestBox();
         final insideClipMissedAbsorber = _CountingHitTestBox();
 
         final stack = RenderStack(
           textDirection: TextDirection.ltr,
           children: <RenderBox>[
-            _positioned(left: 50, top: 50, width: 100, height: 100, child: _createPlatformView(1)),
+            _positioned(left: 50, top: 50, width: 100, height: 100, child: _platformView(1)),
             // Covers PV1 completely so currentGroupFullyCovered becomes true.
             _positioned(
               left: 0,
@@ -2777,13 +2737,7 @@ void main() {
                 child: RenderStack(
                   textDirection: TextDirection.ltr,
                   children: <RenderBox>[
-                    _positioned(
-                      left: 0,
-                      top: 0,
-                      width: 100,
-                      height: 100,
-                      child: _createPlatformView(2),
-                    ),
+                    _positioned(left: 0, top: 0, width: 100, height: 100, child: _platformView(2)),
                     _positioned(
                       left: 10,
                       top: 10,
@@ -2814,7 +2768,7 @@ void main() {
                         top: 260,
                         width: 50,
                         height: 50,
-                        child: _createPlatformView(3),
+                        child: _platformView(3),
                       ),
                       _positioned(
                         left: 270,
@@ -2852,13 +2806,10 @@ void main() {
     );
 
     test('re-dispatches identical payload after platform view is removed and re-attached', () {
-      debugEnableHitTestRegionsOnAllPlatforms = true;
-      binding.automaticPointerInterceptorsEnabled = true;
-
       final updates = <Float64List>[];
       final owner = PipelineOwner(onHitTestRegionsUpdate: updates.add);
       final view = RenderView(
-        configuration: _createViewConfiguration(),
+        configuration: _viewConfiguration(),
         view: binding.platformDispatcher.views.single,
       );
       owner.rootNode = view;
@@ -2873,7 +2824,7 @@ void main() {
         top: 0,
         width: 300,
         height: 300,
-        child: _createPlatformView(1),
+        child: _platformView(1),
       );
       final RenderBox overlay = _positioned(
         left: 10,
