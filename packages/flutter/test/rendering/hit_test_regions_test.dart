@@ -1075,6 +1075,44 @@ void main() {
       expect(results, expected);
     });
 
+    test('whether a mouse region claims depends only on its own opaque, not on enclosing '
+        'mouse regions, and platform views inside one that is not opaque still start groups', () {
+      const innerOpaqueRegion = Rect.fromLTWH(30, 30, 50, 50);
+      const overPv2 = Rect.fromLTWH(130, 130, 40, 40);
+      const outerOpaqueRegion = Rect.fromLTWH(300, 300, 80, 80);
+      final Float64List? regions = regionsFor(
+        _stack(<RenderBox>[
+          _at(const Rect.fromLTWH(0, 0, 400, 400), _platformView(1)),
+          _at(
+            const Rect.fromLTWH(20, 20, 300, 300),
+            RenderMouseRegion(
+              opaque: false,
+              child: _stack(<RenderBox>[
+                _at(const Rect.fromLTWH(10, 10, 50, 50), RenderMouseRegion()),
+                _at(const Rect.fromLTWH(100, 100, 150, 150), _platformView(2)),
+                _at(const Rect.fromLTWH(110, 110, 40, 40), _hitTarget()),
+              ]),
+            ),
+          ),
+          _at(
+            outerOpaqueRegion,
+            RenderMouseRegion(
+              child: _stack(<RenderBox>[
+                _at(const Rect.fromLTWH(10, 10, 20, 20), RenderMouseRegion(opaque: false)),
+              ]),
+            ),
+          ),
+        ]),
+      );
+      expect(
+        regions,
+        _payload(<(int, List<Rect>)>[
+          (1, <Rect>[innerOpaqueRegion]),
+          (2, <Rect>[overPv2, outerOpaqueRegion]),
+        ]),
+      );
+    });
+
     test('a platform view inside an ignoring IgnorePointer still starts a group', () {
       // The browser still sends it pointer events, so content painted over it
       // must claim them.
