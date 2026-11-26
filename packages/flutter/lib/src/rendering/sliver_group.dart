@@ -146,6 +146,22 @@ class RenderSliverCrossAxisGroup extends RenderSliver
     }
   }
 
+  // Mirrors [paint]: only visible slivers are painted, from the first child to
+  // the last.
+  @internal
+  @override
+  void visitChildrenInPaintOrder(RenderObjectVisitor visitor) {
+    RenderSliver? child = firstChild;
+    while (child != null) {
+      // Unlike [paint], this can run before a newly inserted child has been
+      // laid out (for example, in a test frame that stops before layout).
+      if (child.geometry?.visible ?? false) {
+        visitor(child);
+      }
+      child = childAfter(child);
+    }
+  }
+
   @override
   void applyPaintTransform(RenderSliver child, Matrix4 transform) {
     final childParentData = child.parentData! as SliverPhysicalParentData;
